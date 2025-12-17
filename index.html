@@ -1,0 +1,126 @@
+
+<!DOCTYPE html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Gestão de Stock Mercearia</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#059669">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+      
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f8fafc;
+        color: #111827;
+      }
+      
+      .font-heading {
+        font-family: 'Outfit', sans-serif;
+      }
+
+      /* Custom Scrollbar */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+        border-radius: 20px;
+      }
+      
+      /* Animations */
+      @keyframes scaleIn {
+        from { transform: scale(0.95); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      
+      @keyframes slideIn {
+        from { transform: translateY(-10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+    "jspdf": "https://aistudiocdn.com/jspdf@^2.5.1/dist/jspdf.es.min.js"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    
+    <!-- SCRIPT DE LIMPEZA NUCLEAR DE CACHE -->
+    <script>
+      (function() {
+        // Mudar este valor a cada update crítico para forçar limpeza
+        const CURRENT_HTML_VERSION = '3.2.3'; 
+        const storedVersion = localStorage.getItem('html_version');
+
+        if (storedVersion !== CURRENT_HTML_VERSION) {
+          console.log('Update detetado (HTML v3.2.3). A limpar Service Workers e Caches...');
+          
+          // 1. Unregister SW
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for(let registration of registrations) {
+                registration.unregister();
+                console.log('SW Unregistered');
+              }
+            });
+          }
+
+          // 2. Clear Storage Cache
+          if ('caches' in window) {
+             caches.keys().then(function(names) {
+               for (let name of names) {
+                 caches.delete(name);
+                 console.log('Cache Deleted:', name);
+               }
+             });
+          }
+
+          // Atualizar versão para não entrar em loop infinito na mesma sessão
+          localStorage.setItem('html_version', CURRENT_HTML_VERSION);
+        }
+      })();
+    </script>
+
+    <!-- Adicionado cache buster para forçar nova versão do JS -->
+    <script type="module" src="/index.tsx?v=3.2.3"></script>
+    
+    <script>
+      // Registo do SW com query param novo
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js?v=3.2.3')
+            .then(registration => {
+              console.log('SW registered (v3.2.3): ', registration);
+              registration.update();
+            })
+            .catch(registrationError => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "Flip360",
+  "description": "Uma aplicação completa para gestão de stock de mercearia com funcionalidades de IA para reconhecimento de produtos e sugestão de receitas baseadas no inventário.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
