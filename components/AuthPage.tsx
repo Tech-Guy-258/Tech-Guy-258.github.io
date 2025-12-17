@@ -1,12 +1,22 @@
 
 import React, { useState } from 'react';
-import { Account, Business, Employee } from '../types';
-import { Store, Lock, Phone, User as UserIcon, CheckCircle, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Account, Business, Permission } from '../types';
+import { Store, Lock, Phone, CheckCircle, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
 import { APP_NAME, BUSINESS_CATEGORIES, SAMPLE_INVENTORY, APP_VERSION, generateID } from '../constants';
 
 interface AuthPageProps {
-  onLoginSuccess: (account: Account, businessId: string, operator: {id: string, name: string, role: 'owner' | 'employee', roleLabel?: string}) => void;
-  accounts: Account[]; // Passamos todas as contas (simulado backend)
+  onLoginSuccess: (
+    account: Account, 
+    businessId: string, 
+    operator: {
+      id: string, 
+      name: string, 
+      role: 'owner' | 'employee', 
+      roleLabel?: string,
+      permissions?: Permission[] 
+    }
+  ) => void;
+  accounts: Account[];
   onUpdateAccounts: (accounts: Account[]) => void;
 }
 
@@ -107,7 +117,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, accounts, onUpdateA
             id: employee.id,
             name: employee.name,
             role: 'employee',
-            roleLabel: employee.roleLabel
+            roleLabel: employee.roleLabel,
+            permissions: employee.permissions
           });
           return;
         }
@@ -125,7 +136,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, accounts, onUpdateA
         id: authenticatedAccount.id,
         name: authenticatedAccount.ownerName,
         role: 'owner',
-        roleLabel: 'Proprietário'
+        roleLabel: 'Proprietário',
+        permissions: undefined // Owner has all permissions by default logic in App.tsx
       });
     }
   };

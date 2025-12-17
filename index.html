@@ -108,16 +108,18 @@
     <script type="module" src="/index.tsx?v=3.2.3"></script>
     
     <script>
-      // Registo do SW com query param novo
+      // Registo do SW com tratamento de erros silencioso para evitar spam no console em dev
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // Tenta registar. Se falhar (ambiente dev/sem https), loga apenas como aviso.
           navigator.serviceWorker.register('/sw.js?v=3.2.3')
             .then(registration => {
-              console.log('SW registered (v3.2.3): ', registration);
+              console.log('SW registered (v3.2.3)');
               registration.update();
             })
             .catch(registrationError => {
-              console.log('SW registration failed: ', registrationError);
+              // Alterado para console.warn para não aparecer a vermelho
+              console.warn('Service Worker registration skipped (offline mode disabled):', registrationError.message);
             });
         });
       }

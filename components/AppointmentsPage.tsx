@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { Appointment, Customer, InventoryItem, Business, AuditLogEntry, AppointmentStatus } from '../types';
+import { Appointment, Business, AuditLogEntry, AppointmentStatus } from '../types';
 import { generateID } from '../constants';
-import { Calendar as CalendarIcon, Clock, User, Check, X, Plus, Trash2, Search, Briefcase, ChevronLeft, ChevronRight, Phone } from 'lucide-react';
+import { Calendar as CalendarIcon, Phone, Check, X, Plus, Trash2, Search, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface AppointmentsPageProps {
   business: Business;

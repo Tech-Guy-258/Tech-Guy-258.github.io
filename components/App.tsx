@@ -206,7 +206,17 @@ const AppContent: React.FC = () => {
     setAccounts(newAccounts);
   };
 
-  const handleLoginSuccess = (account: Account, businessId: string, operator: {id: string, name: string, role: 'owner' | 'employee', permissions?: Permission[]}) => {
+  const handleLoginSuccess = (
+    account: Account, 
+    businessId: string, 
+    operator: {
+      id: string, 
+      name: string, 
+      role: 'owner' | 'employee', 
+      permissions?: Permission[],
+      roleLabel?: string 
+    }
+  ) => {
     const finalPermissions: Permission[] = operator.role === 'owner' 
       ? ['POS_SELL', 'MANAGE_STOCK', 'VIEW_REPORTS', 'MANAGE_TEAM', 'SETTINGS']
       : (operator.permissions || []);
