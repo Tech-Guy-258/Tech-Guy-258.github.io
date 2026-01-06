@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { Appointment, Business, AuditLogEntry, AppointmentStatus } from '../types';
+import { Appointment, Business, AuditLogEntry, AppointmentStatus, Unit } from '../types';
 import { generateID } from '../constants';
-import { Calendar as CalendarIcon, Phone, Check, X, Plus, Trash2, Search, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Phone, Check, X, Plus, Trash2, Search, Briefcase, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 
 interface AppointmentsPageProps {
   business: Business;
@@ -33,8 +33,11 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
-  // Derived Data
-  const services = useMemo(() => business.items.filter(i => i.type === 'service'), [business.items]);
+  // Derive services directly from business items (synchronized with inventory)
+  const services = useMemo(() => {
+    return business.items.filter(item => item.type === 'service');
+  }, [business.items]);
+
   const customers = business.customers || [];
   
   const filteredCustomers = useMemo(() => {
@@ -96,7 +99,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
     });
 
     setShowForm(false);
-    setFormData({ ...formData, notes: '' });
+    setFormData({ ...formData, notes: '', customerId: '', serviceId: '' });
     setCustomerSearch('');
   };
 
@@ -166,7 +169,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-800 font-heading">Agendamentos</h2>
-            <p className="text-sm text-gray-500">Gerir marcações de serviços.</p>
+            <p className="text-sm text-gray-500">Gerir marcações de serviços do inventário.</p>
           </div>
         </div>
         
@@ -181,7 +184,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
 
       {/* Date Navigator */}
       <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-6">
-         <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-full"><ChevronLeft size={24} /></button>
+         <button onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={24} /></button>
          <div className="text-center">
             <h3 className="font-bold text-lg text-gray-800">
                {new Date(selectedDate).toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -190,7 +193,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                {selectedDate === new Date().toISOString().split('T')[0] ? 'Hoje' : ''}
             </p>
          </div>
-         <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-full"><ChevronRight size={24} /></button>
+         <button onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight size={24} /></button>
       </div>
 
       {/* Appointments List */}
@@ -246,11 +249,14 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
 
       {/* New Appointment Modal */}
       {showForm && (
-         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out]">
                <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-purple-600 text-white">
-                  <h3 className="font-bold text-lg font-heading">Novo Agendamento</h3>
-                  <button onClick={() => setShowForm(false)} className="hover:bg-purple-700 p-1.5 rounded-full"><X size={20}/></button>
+                  <div className="flex items-center">
+                    <CalendarIcon size={20} className="mr-2" />
+                    <h3 className="font-bold text-lg font-heading">Novo Agendamento</h3>
+                  </div>
+                  <button onClick={() => setShowForm(false)} className="hover:bg-purple-700 p-1.5 rounded-full transition-colors"><X size={20}/></button>
                </div>
                
                <form onSubmit={handleSubmit} className="p-6 space-y-4 bg-gray-50">
@@ -261,7 +267,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                         <input 
                            type="text"
                            placeholder="Procurar cliente..."
-                           className="w-full p-3 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                           className="w-full p-3 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
                            value={customerSearch}
                            onChange={(e) => {
                               setCustomerSearch(e.target.value);
@@ -285,7 +291,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                                        setCustomerSearch(c.name);
                                        setShowCustomerDropdown(false);
                                     }}
-                                    className="w-full text-left px-4 py-2 hover:bg-purple-50 text-sm border-b border-gray-50 last:border-0"
+                                    className="w-full text-left px-4 py-3 hover:bg-purple-50 text-sm border-b border-gray-50 last:border-0"
                                  >
                                     <div className="font-bold text-gray-800">{c.name}</div>
                                     <div className="text-xs text-gray-500">{c.phone}</div>
@@ -300,19 +306,28 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
 
                   {/* Service Selection */}
                   <div>
-                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Serviço</label>
+                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Serviço (Do Inventário)</label>
                      <select 
                         required
-                        className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                        className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
                         value={formData.serviceId}
                         onChange={(e) => setFormData({...formData, serviceId: e.target.value})}
                      >
                         <option value="">Selecione o serviço...</option>
                         {services.map(s => (
-                           <option key={s.id} value={s.id}>{s.name} - {(s.sellingPrice || 0).toFixed(2)}</option>
+                           <option key={s.id} value={s.id}>
+                              {s.name} - {s.sellingPrice ? s.sellingPrice.toFixed(2) : '0.00'} MT
+                           </option>
                         ))}
                      </select>
-                     {services.length === 0 && <p className="text-xs text-red-500 mt-1">Crie serviços no inventário primeiro.</p>}
+                     {services.length === 0 ? (
+                        <div className="mt-2 p-2 bg-orange-50 border border-orange-100 rounded-lg flex items-start">
+                          <Info size={14} className="text-orange-500 mr-2 mt-0.5 shrink-0" />
+                          <p className="text-[10px] text-orange-700">Não existem serviços no inventário. Adicione um item do tipo "Serviço" primeiro.</p>
+                        </div>
+                     ) : (
+                        <p className="text-[10px] text-gray-400 mt-1">Lista sincronizada com os serviços registados no stock.</p>
+                     )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -321,7 +336,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                         <input 
                            type="date"
                            required
-                           className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                           className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
                            value={formData.date}
                            onChange={(e) => setFormData({...formData, date: e.target.value})}
                         />
@@ -331,7 +346,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                         <input 
                            type="time"
                            required
-                           className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                           className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-gray-900"
                            value={formData.time}
                            onChange={(e) => setFormData({...formData, time: e.target.value})}
                         />
@@ -341,7 +356,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                   <div>
                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Notas</label>
                      <textarea 
-                        className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white h-20"
+                        className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white h-20 text-gray-900"
                         placeholder="Detalhes opcionais..."
                         value={formData.notes}
                         onChange={(e) => setFormData({...formData, notes: e.target.value})}
@@ -350,8 +365,9 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
 
                   <button 
                      type="submit" 
-                     className="w-full py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-md transition-all"
+                     className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-lg shadow-purple-200 transition-all flex items-center justify-center"
                   >
+                     <Check size={20} className="mr-2" />
                      Confirmar Agendamento
                   </button>
                </form>

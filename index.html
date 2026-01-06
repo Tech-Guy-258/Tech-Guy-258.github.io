@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Gestão de Stock Mercearia</title>
+    <title>Gestão360 - Gestão de Stock Inteligente</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#059669">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,6 +15,7 @@
         font-family: 'Inter', sans-serif;
         background-color: #f8fafc;
         color: #111827;
+        overflow-x: hidden;
       }
       
       .font-heading {
@@ -49,6 +50,19 @@
         from { opacity: 0; }
         to { opacity: 1; }
       }
+
+      /* Loading screen styles */
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        z-index: 9999;
+        transition: opacity 0.3s ease;
+      }
     </style>
   <script type="importmap">
 {
@@ -66,63 +80,40 @@
 </script>
 </head>
   <body>
+    <!-- Initial Loader for better UX during module loading -->
+    <div id="app-loader">
+      <div style="width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif;">A carregar Gestão360...</p>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
+
     <div id="root"></div>
     
-    <!-- SCRIPT DE LIMPEZA NUCLEAR DE CACHE -->
     <script>
-      (function() {
-        // Mudar este valor a cada update crítico para forçar limpeza
-        const CURRENT_HTML_VERSION = '3.2.3'; 
-        const storedVersion = localStorage.getItem('html_version');
+      // LIMPEZA DEFENSIVA DE AMBIENTE - Executada após o load para evitar erros de estado
+      window.addEventListener('load', function() {
+        const CURRENT_VERSION = '3.2.3'; 
+        const stored = localStorage.getItem('html_version');
 
-        if (storedVersion !== CURRENT_HTML_VERSION) {
-          console.log('Update detetado (HTML v3.2.3). A limpar Service Workers e Caches...');
-          
-          // 1. Unregister SW
+        if (stored !== CURRENT_VERSION) {
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-              for(let registration of registrations) {
-                registration.unregister();
-                console.log('SW Unregistered');
-              }
-            });
+            navigator.serviceWorker.getRegistrations().then(regs => {
+              regs.forEach(r => r.unregister());
+            }).catch(e => {});
           }
-
-          // 2. Clear Storage Cache
-          if ('caches' in window) {
-             caches.keys().then(function(names) {
-               for (let name of names) {
-                 caches.delete(name);
-                 console.log('Cache Deleted:', name);
-               }
-             });
-          }
-
-          // Atualizar versão para não entrar em loop infinito na mesma sessão
-          localStorage.setItem('html_version', CURRENT_HTML_VERSION);
+          localStorage.setItem('html_version', CURRENT_VERSION);
         }
-      })();
+
+        const loader = document.getElementById('app-loader');
+        if (loader) {
+          setTimeout(() => {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 300);
+          }, 300);
+        }
+      });
     </script>
 
-    <!-- Adicionado cache buster para forçar nova versão do JS -->
     <script type="module" src="/index.tsx?v=3.2.3"></script>
-    
-    <script>
-      // Registo do SW com tratamento de erros silencioso para evitar spam no console em dev
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          // Tenta registar. Se falhar (ambiente dev/sem https), loga apenas como aviso.
-          navigator.serviceWorker.register('/sw.js?v=3.2.3')
-            .then(registration => {
-              console.log('SW registered (v3.2.3)');
-              registration.update();
-            })
-            .catch(registrationError => {
-              // Alterado para console.warn para não aparecer a vermelho
-              console.warn('Service Worker registration skipped (offline mode disabled):', registrationError.message);
-            });
-        });
-      }
-    </script>
   </body>
 </html>
