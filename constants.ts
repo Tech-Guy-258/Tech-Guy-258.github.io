@@ -374,13 +374,15 @@ export const getDemoAccount = (): Account => {
           for(let i=0; i<3; i++) {
              const cust = customers[i];
              const srv = services[i % services.length];
+             // Fixed: Changed serviceId to serviceIds array, serviceName to serviceNames array, and added totalAmount to match Appointment type definition.
              appointments.push({
                 id: generateID(),
                 customerId: cust.id,
                 customerName: cust.name,
                 customerPhone: cust.phone,
-                serviceId: srv.id,
-                serviceName: srv.name,
+                serviceIds: [srv.id],
+                serviceNames: [srv.name],
+                totalAmount: srv.sellingPrice || srv.price,
                 date: tomorrow.toISOString().split('T')[0],
                 time: `${10 + i}:00`,
                 status: 'scheduled',
