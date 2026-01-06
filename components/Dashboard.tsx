@@ -73,7 +73,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const todaysPaidExpenses = expenses.filter(e => e.lastPaidDate?.startsWith(todayStr) && e.isPaid);
     const dailyOutflows = todaysPaidExpenses.reduce((acc, e) => acc + (e.amount || 0), 0) * rate;
 
-    // Fixed: Cast dailyRevenue and dailyOutflows to number to ensure arithmetic operations are valid
+    // Fixed: Cast operands to Number to satisfy TypeScript arithmetic requirements
     const dailyNetBalance = Number(dailyRevenue) - Number(dailyOutflows);
     const dailyProfitPercent = dailyRevenue > 0 ? (dailyProfitRaw / dailyRevenue) * 100 : 0;
     const salesCount = new Set(todaysSales.map(s => s.transactionId)).size;
@@ -90,29 +90,36 @@ const Dashboard: React.FC<DashboardProps> = ({
     // Cliente do Dia
     const topCustomer = Object.entries(todaysSales.reduce((acc, s) => {
         if (!s.customerName) return acc;
-        // Fixed: Ensure multiplication uses explicit Number type to avoid TS2362
+        // Fixed: Cast operands to Number to satisfy TypeScript arithmetic requirements
         acc[s.customerName] = (acc[s.customerName] || 0) + (Number(s.totalRevenue) * Number(rate));
         return acc;
     }, {} as Record<string, number>))
       .map(([name, total]) => ({ name, total }))
       .sort((a, b) => b.total - a.total)[0];
 
-    // Gráfico Dinâmico
+    // Gráfico Dinâmico - Processamento real das horas
     const productsInSales = Array.from(new Set(todaysSales.map(s => s.itemName))).slice(0, 5);
     const hours = Array.from({ length: 12 }, (_, i) => `${(i + 8).toString().padStart(2, '0')}:00`);
+    
     const hourlyFlowData = hours.map(h => {
         const hourInt = parseInt(h.split(':')[0]);
         const data: any = { time: h };
+        
         productsInSales.forEach(p => {
-            const match = todaysSales.filter(s => new Date(s.date).getHours() === hourInt && s.itemName === p);
+            const match = todaysSales.filter(s => {
+                const sHour = new Date(s.date).getHours();
+                return sHour === hourInt && s.itemName === p;
+            });
             data[p] = chartMetric === 'revenue' 
               ? match.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0)
               : match.reduce((acc, s) => acc + Number(s.quantity), 0);
         });
+
         const totalMatch = todaysSales.filter(s => new Date(s.date).getHours() === hourInt);
         data.total = chartMetric === 'revenue'
           ? totalMatch.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0)
           : totalMatch.reduce((acc, s) => acc + Number(s.quantity), 0);
+        
         return data;
     });
 
@@ -225,12 +232,12 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* KPI Section - Estilo Card Elite e Grid Adaptativo */}
+      {/* KPI Section */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
            <div className="flex justify-between items-start mb-4 sm:mb-6">
               <div className="p-3 sm:p-4 bg-emerald-50 text-emerald-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><TrendingUp size={20} className="sm:w-6 sm:h-6"/></div>
-              <span className="text-[8px] sm:text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">Bruto</span>
+              <span className="text-[8px] sm:text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2.5 sm:px-3 py-1.5 sm:py-1.5 rounded-full">Bruto</span>
            </div>
            <p className="text-3xl sm:text-4xl font-black font-heading text-slate-900">{symbol} {stats.dailyRevenue.toLocaleString()}</p>
            <div className="flex items-center gap-1.5 mt-3 sm:mt-4">
@@ -242,7 +249,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
            <div className="flex justify-between items-start mb-4 sm:mb-6">
               <div className="p-3 sm:p-4 bg-indigo-50 text-indigo-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><Award size={20} className="sm:w-6 sm:h-6"/></div>
-              <span className="text-[8px] sm:text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">Líder</span>
+              <span className="text-[8px] sm:text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2.5 sm:px-3 py-1.5 sm:py-1.5 rounded-full">Líder</span>
            </div>
            <p className="text-base sm:text-xl font-black text-slate-800 truncate mb-1">{stats.topSalesData[0]?.name || "Nenhuma"}</p>
            <p className="text-2xl sm:text-3xl font-black text-indigo-600">{stats.topSalesData[0]?.value || 0} <span className="text-xs sm:text-sm font-bold text-slate-300 tracking-normal font-sans">unidades</span></p>
@@ -251,7 +258,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
            <div className="flex justify-between items-start mb-4 sm:mb-6">
               <div className="p-3 sm:p-4 bg-purple-50 text-purple-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><Star size={20} className="sm:w-6 sm:h-6"/></div>
-              <span className="text-[8px] sm:text-[9px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">VIP</span>
+              <span className="text-[8px] sm:text-[9px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2.5 sm:px-3 py-1.5 sm:py-1.5 rounded-full">VIP</span>
            </div>
            <p className="text-base sm:text-xl font-black text-slate-800 truncate mb-1">{stats.topCustomer?.name || "Consumidor Final"}</p>
            <p className="text-xl sm:text-2xl font-black text-purple-600">{symbol} {stats.topCustomer?.total.toLocaleString() || "0"}</p>
@@ -270,7 +277,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* KPI Line 2 - Extended Metrics Adaptada */}
+      {/* KPI Line 2 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
         {[
           { label: 'Margem', value: `${stats.dailyProfitPercent.toFixed(1)}%`, icon: BarChart3, color: 'text-indigo-500' },
@@ -288,7 +295,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         ))}
       </div>
 
-      {/* Fluxo Dinâmico Restaurado - Mobile Height Optimized */}
+      {/* Fluxo Dinâmico - GRÁFICO ATIVO */}
       <div className="bg-white p-6 sm:p-8 md:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[400px] sm:h-[500px] md:h-[650px]">
         <div className="mb-6 sm:mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
            <div className="space-y-2 w-full sm:w-auto">
@@ -301,7 +308,7 @@ const Dashboard: React.FC<DashboardProps> = ({
            <div className="flex flex-wrap gap-2">
               <button 
                 onClick={() => setActiveChartProducts([])}
-                className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.length === 0 ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}
+                className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.length === 0 ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}
               >
                 Geral
               </button>
@@ -309,7 +316,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <button 
                   key={p}
                   onClick={() => setActiveChartProducts(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
-                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.includes(p) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.includes(p) ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                 >
                   {p.split(' ')[0]}
                 </button>
@@ -345,7 +352,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10">
-        {/* Tesouraria Adaptada */}
+        {/* Tesouraria - CLIQUE ATIVADO PARA PAGAMENTO */}
         <div className="bg-white rounded-[2.5rem] sm:rounded-[4rem] border border-slate-50 shadow-sm overflow-hidden flex flex-col h-[500px] sm:h-[580px]">
           <div className="p-6 sm:p-12 pb-4 sm:pb-6">
             <div className="flex justify-between items-center mb-6 sm:mb-10">
@@ -360,13 +367,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div 
                   key={exp.id} 
                   onClick={() => { setSelectedExpense(exp); setShowExpenseActionModal(true); }} 
-                  className={`w-full p-5 sm:p-7 rounded-[1.8rem] sm:rounded-[2.5rem] border transition-all flex justify-between items-center cursor-pointer ${exp.isPaid ? 'bg-slate-50 border-transparent opacity-60' : 'bg-white border-slate-100 hover:border-red-200 hover:shadow-lg'}`}
+                  className={`w-full p-5 sm:p-7 rounded-[1.8rem] sm:rounded-[2.5rem] border transition-all flex justify-between items-center cursor-pointer active:scale-[0.98] ${exp.isPaid ? 'bg-slate-50 border-transparent opacity-60' : 'bg-white border-slate-100 hover:border-red-200 hover:shadow-lg'}`}
                 >
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className={`p-3 sm:p-4 rounded-[1rem] sm:rounded-2xl transition-all ${exp.isPaid ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-300'}`}>{exp.isPaid ? <CheckCircle size={18} className="sm:w-[22px] sm:h-[22px]"/> : <Clock size={18} className="sm:w-[22px] sm:h-[22px]"/>}</div>
                     <div className="min-w-0">
                       <div className="font-black text-slate-800 text-xs sm:text-base truncate max-w-[120px] sm:max-w-none">{exp.name}</div>
-                      <div className="text-[8px] sm:text-[10px] font-black uppercase text-slate-400 mt-1 tracking-widest">{exp.type === 'fixed' ? 'Fixa' : 'Pontual'}</div>
+                      <div className="text-[8px] sm:text-[10px] font-black uppercase text-slate-400 mt-1 tracking-widest">{exp.type === 'fixed' ? 'Fixa/Mensal' : 'Pontual'}</div>
                     </div>
                   </div>
                   <div className="text-right">
@@ -379,7 +386,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        {/* Auditoria com Drill-Down Adaptada */}
+        {/* Auditoria */}
         <div className="bg-white p-6 sm:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[500px] sm:h-[580px]">
           <div className="flex items-center space-x-2 sm:space-x-3 mb-6 sm:mb-10 bg-slate-100 p-1.5 rounded-[1.8rem] sm:rounded-[2.2rem] w-full sm:w-fit mx-auto shadow-inner">
              <button onClick={() => setRightPanelTab('sales')} className={`flex-1 sm:flex-none px-6 sm:px-12 py-2.5 sm:py-3.5 text-[9px] sm:text-[11px] font-black uppercase transition-all rounded-[1.5rem] sm:rounded-[1.8rem] ${rightPanelTab === 'sales' ? 'bg-white text-slate-800 shadow-lg' : 'text-slate-400'}`}>Vendas</button>
@@ -420,7 +427,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Recibo Auditoria Premium - Mobile Optimized */}
+      {/* Recibo Auditoria */}
       {detailModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
@@ -460,7 +467,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Formulário Saída Delicado - Adaptado */}
+      {/* Formulário Saída */}
       {showExpenseForm && (
          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
             <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
@@ -529,7 +536,58 @@ const Dashboard: React.FC<DashboardProps> = ({
          </div>
       )}
 
-      {/* Reposição de Stock Direta - Mobile optimized size */}
+      {/* Ações de Despesa (Fixa ou Variável) */}
+      {showExpenseActionModal && selectedExpense && (
+         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-900/70 backdrop-blur-xl p-4">
+            <div className="bg-white w-full max-w-sm rounded-[4rem] shadow-2xl overflow-hidden p-14 text-center animate-[scaleIn_0.3s_ease-out]">
+               <div className="w-24 h-24 bg-red-50 text-red-600 rounded-[2.8rem] flex items-center justify-center mx-auto mb-10 border border-red-100 shadow-inner"><Receipt size={44}/></div>
+               <h3 className="text-2xl font-black text-slate-900">{selectedExpense.name}</h3>
+               <p className="text-red-600 font-black text-4xl mt-4">{symbol}{selectedExpense.amount.toLocaleString()}</p>
+               
+               <div className="space-y-4 mt-12">
+                  {!selectedExpense.isPaid && (
+                     <button 
+                        onClick={() => setShowPaymentSelector(true)} 
+                        className="w-full py-6 bg-emerald-600 text-white font-black rounded-[2.2rem] hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 shadow-2xl shadow-emerald-100 active:scale-95"
+                     >
+                        <CheckCircle size={22}/> Liquidar Turno
+                     </button>
+                  )}
+                  <button 
+                     onClick={() => { onDeleteExpense?.(selectedExpense.id); setShowExpenseActionModal(false); }} 
+                     className="w-full py-6 bg-slate-50 text-slate-400 font-black rounded-[2.2rem] hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center gap-3"
+                  >
+                     <Trash2 size={20}/> Eliminar Registo
+                  </button>
+                  <button onClick={() => setShowExpenseActionModal(false)} className="w-full py-4 text-slate-300 font-black text-[10px] uppercase tracking-[0.4em] mt-5">Fechar Menu</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* Seletor de Pagamento de Despesa */}
+      {showPaymentSelector && selectedExpense && (
+         <div className="fixed inset-0 z-[170] flex items-center justify-center bg-slate-900/80 backdrop-blur-3xl p-4">
+            <div className="bg-white w-full max-w-xs rounded-[4.5rem] shadow-2xl overflow-hidden p-14 text-center border border-white/20">
+               <h3 className="font-black text-2xl text-slate-900 mb-12 font-heading">Meio de Pagamento</h3>
+               <div className="grid grid-cols-2 gap-6 mb-12">
+                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
+                    <button 
+                      key={m} 
+                      onClick={() => { onPayExpense?.(selectedExpense.id, m as PaymentMethod); setShowPaymentSelector(false); setShowExpenseActionModal(false); }} 
+                      className="flex flex-col items-center justify-center p-8 bg-slate-50 hover:bg-emerald-600 hover:text-white rounded-[2.8rem] border border-slate-100 transition-all group shadow-sm active:scale-90"
+                    >
+                      {getMethodIcon(m)}
+                      <span className="mt-4 text-[10px] font-black uppercase group-hover:text-white tracking-widest">{m}</span>
+                    </button>
+                  ))}
+               </div>
+               <button onClick={() => setShowPaymentSelector(false)} className="text-slate-400 font-black text-[10px] uppercase tracking-[0.4em] hover:text-slate-600 transition-colors">Voltar</button>
+            </div>
+         </div>
+      )}
+
+      {/* Reposição de Stock */}
       {showRestockModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6">
            <div className="bg-white p-8 sm:p-12 rounded-[3rem] sm:rounded-[4.5rem] shadow-2xl w-full max-w-xs text-center animate-[scaleIn_0.3s_ease-out]">
@@ -539,7 +597,6 @@ const Dashboard: React.FC<DashboardProps> = ({
               
               <div className="my-8 sm:my-12">
                  <div className="flex items-center justify-center gap-5 sm:gap-8">
-                    {/* Fixed: Remove className from Minus as it's not in the defined props type */}
                     <button onClick={() => setRestockQty(Math.max(1, restockQty-1))} className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-inner active:scale-90"><Minus size={18} /></button>
                     <span className="text-4xl sm:text-6xl font-black text-slate-900 w-16 sm:w-24">{restockQty}</span>
                     <button onClick={() => setRestockQty(restockQty+1)} className="w-10 h-10 sm:w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-inner active:scale-90"><Plus size={18} className="sm:w-5 sm:h-5"/></button>
@@ -554,7 +611,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Loading de Sincronização Adaptado */}
+      {/* Loading de Sincronização */}
       {isGeneratingPDF && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-3xl">
            <div className="bg-white p-12 sm:p-24 rounded-[3rem] sm:rounded-[6rem] shadow-2xl flex flex-col items-center text-center animate-[scaleIn_0.4s_ease-out] mx-4">
