@@ -26,6 +26,16 @@ interface Variant {
   lowStockThreshold: number;
 }
 
+// Fixed: Define explicit interface for commonData to prevent type errors during dynamic updates
+interface CommonData {
+  name: string;
+  category: Category | string;
+  expiryDate: string;
+  imageUrl: string | null;
+  type: 'product' | 'service';
+  supplierId: string;
+}
+
 const AddItemForm: React.FC<AddItemFormProps> = ({ onSave, onCancel, editingItem, allItems = [], suppliers = [], currency, exchangeRates, activeBusinessCategory }) => {
   
   const isServiceBusiness = activeBusinessCategory.includes('Salão') || activeBusinessCategory.includes('Barbearia') || activeBusinessCategory.includes('Agência') || activeBusinessCategory.includes('Consultoria');
@@ -35,13 +45,14 @@ const AddItemForm: React.FC<AddItemFormProps> = ({ onSave, onCancel, editingItem
   const availableCategories = CATEGORIES_PER_BUSINESS[activeBusinessCategory] || Object.values(Category);
 
   // Common Data
-  const [commonData, setCommonData] = useState({
+  // Fixed: Explicitly type the state with CommonData interface to resolve assignment errors
+  const [commonData, setCommonData] = useState<CommonData>({
     name: '',
     category: availableCategories[0],
     expiryDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
-    imageUrl: null as string | null,
-    type: defaultType as 'product' | 'service',
-    supplierId: '' as string // Novo state para fornecedor
+    imageUrl: null,
+    type: defaultType,
+    supplierId: ''
   });
 
   const [variants, setVariants] = useState<Variant[]>([
@@ -99,6 +110,7 @@ const AddItemForm: React.FC<AddItemFormProps> = ({ onSave, onCancel, editingItem
     }
   }, [editingItem, allItems, rate]);
 
+  // Fixed: handleCommonChange updated to support dynamic property updates without type mismatches
   const handleCommonChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setCommonData(prev => ({ ...prev, [name]: value }));

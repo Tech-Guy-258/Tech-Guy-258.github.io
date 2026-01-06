@@ -14,11 +14,11 @@ import SubscriptionPage from './components/SubscriptionPage';
 import ProfilePage from './components/ProfilePage';
 import SuppliersPage from './components/SuppliersPage';
 import CustomersPage from './components/CustomersPage';
-import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer } from './types';
-import { DEFAULT_EXCHANGE_RATES, APP_NAME, getDemoAccount, APP_VERSION } from './constants';
+import AppointmentsPage from './components/AppointmentsPage'; 
+import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer, Expense } from './types';
+import { DEFAULT_EXCHANGE_RATES, APP_NAME, getDemoAccount, APP_VERSION, generateID } from './constants';
 import { Menu, X, LogOut, User as UserIcon } from 'lucide-react';
 
-// --- MOBILE NAV COMPONENT ---
 const MobileNav = ({ 
   isOpen, onClose, currency, onCurrencyChange, rates, onLogout, session
 }: { 
@@ -32,7 +32,6 @@ const MobileNav = ({
 }) => {
   if (!isOpen) return null;
   const permissions = session?.operator.permissions || [];
-  
   const can = (p: Permission) => permissions.includes(p);
 
   return (
@@ -49,13 +48,11 @@ const MobileNav = ({
            <nav className="space-y-1">
               {can('VIEW_REPORTS') && <NavButton to="/" label="Dashboard" />}
               {can('POS_SELL') && <NavButton to="/sales" label="Caixa (Vendas)" />}
-              
+              <NavButton to="/appointments" label="📅 Agendamentos" />
               {can('MANAGE_STOCK') && <NavButton to="/inventory" label="Inventário" />}
               {can('MANAGE_STOCK') && <NavButton to="/add" label="Adicionar Produto" />}
-              
               {can('MANAGE_STOCK') && <NavButton to="/suppliers" label="Fornecedores" />}
               {(can('MANAGE_STOCK') || can('POS_SELL')) && <NavButton to="/customers" label="Clientes" />}
-              
               {can('SETTINGS') && <NavButton to="/settings" label="Definições" />}
               {can('MANAGE_STOCK') && <NavButton to="/remove" label="Lixo" />}
            </nav>
@@ -80,7 +77,6 @@ const MobileNav = ({
             <LogOut size={18} />
             <span>Sair do Negócio</span>
           </button>
-          <p className="text-[10px] text-center text-gray-400 mt-2 font-mono">v{APP_VERSION}</p>
         </div>
       </div>
     </div>
@@ -102,28 +98,19 @@ const NavButton = ({ to, label }: { to: string, label: string }) => {
 };
 
 const AppContent: React.FC = () => {
-  // --- GLOBAL DATA (All Accounts) ---
   const [accounts, setAccounts] = useState<Account[]>(() => {
     let initialAccounts: Account[] = [];
     try {
       const saved = localStorage.getItem('gestao360_accounts');
-      if (saved) {
-        initialAccounts = JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error("Failed to load accounts", e);
-    }
-
-    // INJECT DEMO USER IF MISSING
+      if (saved) initialAccounts = JSON.parse(saved);
+    } catch (e) {}
     const demoUser = getDemoAccount();
     if (!initialAccounts.find(a => a.phoneNumber === demoUser.phoneNumber)) {
       initialAccounts.push(demoUser);
     }
-
     return initialAccounts;
   });
 
-  // --- SESSION STATE ---
   const [currentSession, setCurrentSession] = useState<CurrentSession | null>(() => {
      try {
         const saved = localStorage.getItem('gestao360_session');
@@ -131,7 +118,6 @@ const AppContent: React.FC = () => {
      } catch(e) { return null; }
   });
 
-  // Helper: Get Active Business Object
   const activeBusiness = currentSession 
     ? accounts.find(a => a.id === currentSession.account.id)?.businesses.find(b => b.id === currentSession.businessId)
     : null;
@@ -153,117 +139,63 @@ const AppContent: React.FC = () => {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const navigate = useNavigate();
 
-  // --- PERSISTENCE ---
   useEffect(() => {
     localStorage.setItem('gestao360_accounts', JSON.stringify(accounts));
   }, [accounts]);
 
   useEffect(() => {
-    if (currentSession) {
-       localStorage.setItem('gestao360_session', JSON.stringify(currentSession));
-    } else {
-       localStorage.removeItem('gestao360_session');
-    }
+    if (currentSession) localStorage.setItem('gestao360_session', JSON.stringify(currentSession));
+    else localStorage.removeItem('gestao360_session');
   }, [currentSession]);
 
   useEffect(() => {
     localStorage.setItem('currency', currency);
   }, [currency]);
 
-  // --- DATA UPDATERS ---
-  
-  // Generic helper to update the active business data
   const updateActiveBusiness = (updater: (b: Business) => Business) => {
     if (!currentSession || !activeBusiness) return;
-
     setAccounts(prevAccounts => prevAccounts.map(acc => {
       if (acc.id === currentSession.account.id) {
         return {
           ...acc,
-          businesses: acc.businesses.map(b => {
-             if (b.id === currentSession.businessId) {
-                return updater(b);
-             }
-             return b;
-          })
+          businesses: acc.businesses.map(b => b.id === currentSession.businessId ? updater(b) : b)
         };
       }
       return acc;
     }));
   };
 
-  const handleUpdateAccounts = (newAccounts: Account[]) => {
-    setAccounts(newAccounts);
-  };
-
-  const handleLoginSuccess = (account: Account, businessId: string, operator: {id: string, name: string, role: 'owner' | 'employee', permissions?: Permission[]}) => {
-    
-    // Define all permissions for owner, or specific permissions for employee
+  const handleLoginSuccess = (account: Account, businessId: string, operator: any) => {
     const finalPermissions: Permission[] = operator.role === 'owner' 
       ? ['POS_SELL', 'MANAGE_STOCK', 'VIEW_REPORTS', 'MANAGE_TEAM', 'SETTINGS']
       : (operator.permissions || []);
 
     setCurrentSession({
-       account: account, 
-       businessId,
-       operator: {
-         ...operator,
-         permissions: finalPermissions
-       }
+       account, businessId,
+       operator: { ...operator, permissions: finalPermissions }
     });
   };
 
-  const handleSwitchBusinessSecure = (targetBusinessId: string) => {
-    if (currentSession) {
-       setCurrentSession({
-         ...currentSession,
-         businessId: targetBusinessId
-       });
-       navigate('/');
-    }
-  };
-
-  // --- HELPER PARA OBTER O NOME CORRETO PARA LOGS ---
-  const getOperatorDisplayName = () => {
-    if (!currentSession) return 'Sistema';
-    return currentSession.operator.role === 'owner' ? 'Proprietário' : currentSession.operator.name;
-  };
-
-  // --- AUDIT HELPER ---
   const createLog = (action: AuditLogEntry['action'], details: string): AuditLogEntry => {
+    const opName = currentSession?.operator.role === 'owner' ? 'Proprietário' : currentSession?.operator.name || 'Sistema';
     return {
-      id: crypto.randomUUID(),
+      id: generateID(),
       action,
       details,
-      operatorName: getOperatorDisplayName(),
+      operatorName: opName,
       timestamp: new Date().toISOString()
     };
   };
 
-  // --- BUSINESS LOGIC WRAPPERS ---
-
   const handleSaveProduct = (newVariants: InventoryItem[], originalName?: string) => {
     if (!currentSession) return;
-    
-    const auditedVariants = newVariants.map(v => ({
-      ...v,
-      lastUpdatedBy: getOperatorDisplayName(),
-      lastUpdatedAt: new Date().toISOString()
-    }));
-
     updateActiveBusiness(biz => {
-      const nameToRemove = originalName || (auditedVariants.length > 0 ? auditedVariants[0].name : '');
-      const otherItems = biz.items.filter(i => String(i.name).trim() !== String(nameToRemove).trim());
-      
-      const isNew = !originalName;
-      const log = createLog(
-        isNew ? 'CREATE' : 'UPDATE', 
-        isNew ? `Adicionou o produto: ${newVariants[0].name}` : `Editou o produto: ${newVariants[0].name}`
-      );
-
+      const nameToRemove = originalName || (newVariants.length > 0 ? newVariants[0].name : '');
+      const otherItems = biz.items.filter(i => i.name !== nameToRemove);
+      const log = createLog(originalName ? 'UPDATE' : 'CREATE', `Produto: ${newVariants[0].name}`);
       return { 
         ...biz, 
-        items: [...otherItems, ...auditedVariants],
+        items: [...otherItems, ...newVariants],
         auditLogs: [log, ...(biz.auditLogs || [])]
       };
     });
@@ -271,399 +203,77 @@ const AppContent: React.FC = () => {
     navigate('/inventory');
   };
 
-  const handleDeleteItem = (id: string) => {
-    updateActiveBusiness(biz => {
-      const item = biz.items.find(i => i.id === id);
-      const log = createLog('DELETE', `Removeu o produto: ${item?.name || 'Desconhecido'}`);
-      return {
-         ...biz,
-         items: biz.items.filter(i => i.id !== id),
-         auditLogs: [log, ...(biz.auditLogs || [])]
-      };
-    });
-  };
-
-  const handleRestock = (itemId: string, quantityToAdd: number) => {
-    if (!currentSession) return;
-    updateActiveBusiness(biz => {
-       const item = biz.items.find(i => i.id === itemId);
-       const log = createLog('UPDATE', `Repôs stock de ${item?.name}: +${quantityToAdd} ${item?.unit}`);
-       
-       return {
-          ...biz,
-          items: biz.items.map(i => i.id === itemId ? { 
-            ...i, 
-            quantity: (Number(i.quantity) || 0) + quantityToAdd,
-            lastUpdatedBy: getOperatorDisplayName(),
-            lastUpdatedAt: new Date().toISOString()
-          } : i),
-          auditLogs: [log, ...(biz.auditLogs || [])]
-       };
-    });
-  };
-
-  const handleCloseRegister = () => {
-    if (!currentSession) return;
-    updateActiveBusiness(biz => {
-      const log = createLog('CLOSE_REGISTER', 'Encerramento de caixa diário (Relatório gerado)');
-      return {
-        ...biz,
-        auditLogs: [log, ...(biz.auditLogs || [])]
-      };
-    });
-  };
-
   const handleBatchSale = (cartItems: CartItem[], paymentMethod: PaymentMethod, customer?: Customer): SaleRecord[] => {
     if (!activeBusiness || !currentSession) return [];
-
     const newSales: SaleRecord[] = [];
     const date = new Date().toISOString();
-    const transactionId = crypto.randomUUID();
-    
-    let updatedItems = [...activeBusiness.items];
+    const transactionId = generateID();
     let totalRev = 0;
 
-    cartItems.forEach(cartItem => {
-      const itemIndex = updatedItems.findIndex(i => i.id === cartItem.item.id);
-      if (itemIndex === -1) return;
-      
-      const item = updatedItems[itemIndex];
-      const costPrice = item.price;
-      const sellingPrice = item.sellingPrice || item.price;
-      const totalRevenue = sellingPrice * cartItem.quantity;
-      totalRev += totalRevenue;
-      const totalProfit = (sellingPrice - costPrice) * cartItem.quantity;
-
-      const record: SaleRecord = {
-        id: crypto.randomUUID(),
-        transactionId: transactionId,
-        itemId: item.id,
-        itemName: item.name,
-        itemSize: item.size,
-        itemUnit: item.unit,
-        quantity: cartItem.quantity,
-        totalRevenue,
-        totalProfit,
-        date,
-        paymentMethod: paymentMethod,
-        operatorName: getOperatorDisplayName(),
-        operatorId: currentSession.operator.id,
-        customerId: customer?.id,
-        customerName: customer?.name
-      };
-      newSales.push(record);
-
-      updatedItems[itemIndex] = {
-        ...item,
-        quantity: Number((item.quantity - cartItem.quantity).toFixed(2))
-      };
+    const updatedItems = activeBusiness.items.map(item => {
+      const cartItem = cartItems.find(ci => ci.item.id === item.id);
+      if (cartItem) {
+        const rev = (item.sellingPrice || item.price) * cartItem.quantity;
+        totalRev += rev;
+        newSales.push({
+          id: generateID(), transactionId, itemId: item.id, itemName: item.name,
+          itemSize: item.size, itemUnit: item.unit, quantity: cartItem.quantity,
+          totalRevenue: rev, totalProfit: (item.sellingPrice - item.price) * cartItem.quantity,
+          date, paymentMethod, operatorName: currentSession.operator.name, operatorId: currentSession.operator.id,
+          customerId: customer?.id, customerName: customer?.name
+        });
+        return { ...item, quantity: Number((item.quantity - cartItem.quantity).toFixed(2)) };
+      }
+      return item;
     });
 
-    updateActiveBusiness(biz => {
-       const customerInfo = customer ? ` | Cliente: ${customer.name}` : '';
-       const log = createLog('SALE', `Venda #${transactionId.slice(0,6)} de ${cartItems.length} itens. Total: ${totalRev.toFixed(2)}${customerInfo}`);
-       
-       let updatedCustomers = biz.customers;
-       if (customer) {
-          updatedCustomers = biz.customers.map(c => {
-             if (c.id === customer.id) {
-                return {
-                   ...c,
-                   totalSpent: c.totalSpent + totalRev,
-                   loyaltyPoints: c.loyaltyPoints + Math.floor(totalRev / 100),
-                   lastVisit: date
-                };
-             }
-             return c;
-          });
-       }
-
-       return {
-         ...biz,
-         items: updatedItems,
-         sales: [...biz.sales, ...newSales],
-         customers: updatedCustomers,
-         auditLogs: [log, ...(biz.auditLogs || [])]
-       };
-    });
+    updateActiveBusiness(biz => ({
+      ...biz,
+      items: updatedItems,
+      sales: [...biz.sales, ...newSales],
+      auditLogs: [createLog('SALE', `Venda #${transactionId.slice(0,6)}: ${totalRev.toFixed(2)}MT`), ...(biz.auditLogs || [])]
+    }));
 
     return newSales;
   };
 
-  const handleQuickAddCustomer = (name: string, phone: string): Customer => {
-     const newCustomer: Customer = {
-        id: crypto.randomUUID(),
-        name,
-        phone,
-        email: '',
-        address: '',
-        notes: 'Criado no Caixa',
-        loyaltyPoints: 0,
-        totalSpent: 0,
-        lastVisit: new Date().toISOString()
-     };
-
+  const handleSaveExpense = (exp: Expense) => {
      updateActiveBusiness(biz => ({
         ...biz,
-        customers: [...(biz.customers || []), newCustomer]
+        expenses: [...(biz.expenses || []).filter(e => e.id !== exp.id), exp],
+        auditLogs: [createLog('EXPENSE', `Despesa: ${exp.name}`), ...(biz.auditLogs || [])]
      }));
-
-     return newCustomer;
-  };
-
-  const handleClearInventory = () => {
-     updateActiveBusiness(biz => {
-        const log = createLog('DELETE', 'Limpou todo o inventário (Zona de Perigo)');
-        return { ...biz, items: [], sales: [], auditLogs: [log, ...(biz.auditLogs || [])] };
-     });
-  };
-
-  const handleSwitchBusiness = () => {
-    setCurrentSession(null); 
   };
 
   if (!currentSession || !activeBusiness) {
-     return <AuthPage 
-       onLoginSuccess={handleLoginSuccess} 
-       accounts={accounts} 
-       onUpdateAccounts={handleUpdateAccounts} 
-     />;
+     return <AuthPage onLoginSuccess={handleLoginSuccess} accounts={accounts} onUpdateAccounts={setAccounts} />;
   }
 
-  const hasPermission = (p: Permission) => currentSession.operator.permissions.includes(p);
+  const can = (p: Permission) => currentSession.operator.permissions.includes(p);
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-gray-900">
-      <Sidebar 
-        currency={currency} 
-        onCurrencyChange={setCurrency} 
-        rates={rates}
-        session={currentSession}
-        activeBusiness={activeBusiness}
-        onSwitchBusiness={handleSwitchBusiness}
-      />
-      <MobileNav 
-        isOpen={mobileMenuOpen} 
-        onClose={() => setMobileMenuOpen(false)}
-        currency={currency}
-        onCurrencyChange={setCurrency}
-        rates={rates}
-        onLogout={handleSwitchBusiness}
-        session={currentSession}
-      />
+      <Sidebar currency={currency} onCurrencyChange={setCurrency} rates={rates} session={currentSession} activeBusiness={activeBusiness} onSwitchBusiness={() => setCurrentSession(null)} />
+      <MobileNav isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} currency={currency} onCurrencyChange={setCurrency} rates={rates} onLogout={() => setCurrentSession(null)} session={currentSession} />
       
       <main className="flex-1 md:ml-72 w-full min-h-screen flex flex-col">
-        {/* Sticky Mobile Header */}
         <div className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-4 py-3 shadow-sm">
           <div className="flex items-center gap-3">
-             <button 
-               onClick={() => navigate('/profile')}
-               className="p-2 bg-gray-50 border border-gray-200 rounded-full text-emerald-600 active:scale-95 transition-transform shadow-sm"
-               aria-label="Perfil"
-             >
-               <UserIcon size={20} />
-             </button>
-             <div>
-                <h1 className="text-sm font-bold text-gray-900 font-heading tracking-tight leading-none">{activeBusiness.name}</h1>
-                <p className="text-[10px] text-gray-500">{getOperatorDisplayName()}</p>
-             </div>
+             <button onClick={() => navigate('/profile')} className="p-2 bg-gray-50 border border-gray-200 rounded-full text-emerald-600 shadow-sm"><UserIcon size={20} /></button>
+             <h1 className="text-sm font-bold">{activeBusiness.name}</h1>
           </div>
-          <button onClick={() => setMobileMenuOpen(true)} className="p-2 text-gray-700 bg-gray-50 border border-gray-200 rounded-lg">
-            <Menu size={24} />
-          </button>
+          <button onClick={() => setMobileMenuOpen(true)} className="p-2 bg-gray-50 border border-gray-200 rounded-lg"><Menu size={24} /></button>
         </div>
 
-        <div className="flex-1 p-0 md:p-0">
+        <div className="flex-1">
           <Routes>
-            <Route path="/" element={
-               hasPermission('VIEW_REPORTS') ? (
-                  <Dashboard 
-                    items={activeBusiness.items} 
-                    sales={activeBusiness.sales} 
-                    logs={activeBusiness.auditLogs}
-                    currency={currency} 
-                    exchangeRates={rates} 
-                    onRestock={hasPermission('MANAGE_STOCK') ? handleRestock : undefined}
-                    onCloseRegister={hasPermission('VIEW_REPORTS') ? handleCloseRegister : undefined}
-                    activeBusinessName={activeBusiness.name}
-                    currentOperator={getOperatorDisplayName()}
-                  />
-               ) : <Navigate to="/profile" replace />
-            } />
-            <Route path="/profile" element={
-              <ProfilePage
-                session={currentSession}
-                activeBusiness={activeBusiness}
-                onUpdateBusiness={(updatedBiz) => updateActiveBusiness(() => updatedBiz)}
-                onAddBusiness={(newBiz) => {
-                   setAccounts(prev => prev.map(a => a.id === currentSession.account.id ? {...a, businesses: [...a.businesses, newBiz]} : a));
-                }}
-                onSwitchBusinessSecure={handleSwitchBusinessSecure}
-                currency={currency}
-                exchangeRates={rates}
-                onRenewSubscription={(bizId, plan) => {
-                   const newExpiry = new Date();
-                   newExpiry.setMonth(newExpiry.getMonth() + plan.durationMonths);
-                   
-                   setAccounts(prevAccounts => prevAccounts.map(acc => {
-                     if (acc.id === currentSession.account.id) {
-                       return {
-                         ...acc,
-                         businesses: acc.businesses.map(b => {
-                           if (b.id === bizId) {
-                             const log = createLog('SUBSCRIPTION', `Renovou subscrição (${plan.name})`);
-                             const updatedBiz = { 
-                               ...b, 
-                               subscriptionStatus: 'active' as const, 
-                               subscriptionExpiry: newExpiry.toISOString(),
-                               auditLogs: [log, ...(b.auditLogs || [])]
-                             };
-                             return updatedBiz;
-                           }
-                           return b;
-                         })
-                       };
-                     }
-                     return acc;
-                   }));
-                }}
-              />
-            } />
-            <Route 
-              path="/inventory" 
-              element={
-                hasPermission('MANAGE_STOCK') ? (
-                  <InventoryList 
-                    items={activeBusiness.items} 
-                    onDelete={handleDeleteItem} 
-                    onEdit={(item) => { setEditingItem(item); navigate('/add'); }}
-                    currency={currency}
-                    exchangeRates={rates}
-                    activeBusinessCategory={activeBusiness.category}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            <Route 
-              path="/add" 
-              element={
-                hasPermission('MANAGE_STOCK') ? (
-                  <AddItemForm 
-                    onSave={handleSaveProduct} 
-                    onCancel={() => { setEditingItem(null); navigate('/inventory'); }} 
-                    editingItem={editingItem}
-                    allItems={activeBusiness.items}
-                    suppliers={activeBusiness.suppliers || []} // Pass suppliers list
-                    currency={currency}
-                    exchangeRates={rates}
-                    activeBusinessCategory={activeBusiness.category}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            <Route 
-              path="/sales" 
-              element={
-                hasPermission('POS_SELL') ? (
-                  <SalesPage 
-                    items={activeBusiness.items} 
-                    customers={activeBusiness.customers || []}
-                    onBatchSale={handleBatchSale}
-                    onAddCustomer={handleQuickAddCustomer}
-                    currency={currency}
-                    exchangeRates={rates}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            
-            <Route 
-              path="/suppliers" 
-              element={
-                hasPermission('MANAGE_STOCK') ? (
-                  <SuppliersPage 
-                    business={activeBusiness}
-                    onUpdateBusiness={(updatedBiz) => updateActiveBusiness(() => updatedBiz)}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            <Route 
-              path="/customers" 
-              element={
-                (hasPermission('MANAGE_STOCK') || hasPermission('POS_SELL')) ? (
-                  <CustomersPage 
-                    business={activeBusiness}
-                    onUpdateBusiness={(updatedBiz) => updateActiveBusiness(() => updatedBiz)}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-
-            <Route 
-              path="/remove" 
-              element={
-                hasPermission('MANAGE_STOCK') ? (
-                  <RemoveItems 
-                    items={activeBusiness.items} 
-                    onDelete={handleDeleteItem}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            <Route path="/chef" element={<AIChef items={activeBusiness.items} />} />
-            <Route 
-              path="/settings" 
-              element={
-                hasPermission('SETTINGS') ? (
-                  <Settings 
-                    rates={rates} 
-                    onUpdateRate={(c, r) => c !== 'MZN' && setRates(prev => ({...prev, [c]: r}))} 
-                    onResetRates={() => setRates(DEFAULT_EXCHANGE_RATES)}
-                    onClearInventory={handleClearInventory}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
-            <Route 
-              path="/subscription" 
-              element={
-                (hasPermission('SETTINGS') || hasPermission('VIEW_REPORTS')) ? (
-                  <SubscriptionPage 
-                    account={currentSession.account} 
-                    activeBusiness={activeBusiness}
-                    onRenew={(bizId, plan) => {
-                       const newExpiry = new Date();
-                       newExpiry.setMonth(newExpiry.getMonth() + plan.durationMonths);
-                       setAccounts(prevAccounts => prevAccounts.map(acc => {
-                         if (acc.id === currentSession.account.id) {
-                           return {
-                             ...acc,
-                             businesses: acc.businesses.map(b => {
-                               if (b.id === bizId) {
-                                 const log = createLog('SUBSCRIPTION', `Renovou subscrição (${plan.name})`);
-                                 const updatedBiz = { 
-                                   ...b, 
-                                   subscriptionStatus: 'active' as const, 
-                                   subscriptionExpiry: newExpiry.toISOString(),
-                                   auditLogs: [log, ...(b.auditLogs || [])]
-                                 };
-                                 return updatedBiz;
-                               }
-                               return b;
-                             })
-                           };
-                         }
-                         return acc;
-                       }));
-                    }} 
-                    onExit={handleSwitchBusiness}
-                    isExpiredMode={false} 
-                    isOwner={currentSession.operator.role === 'owner'}
-                  />
-                ) : <Navigate to="/" replace />
-              } 
-            />
+            <Route path="/appointments" element={<AppointmentsPage business={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} />} />
+            <Route path="/" element={can('VIEW_REPORTS') ? <Dashboard items={activeBusiness.items} sales={activeBusiness.sales} logs={activeBusiness.auditLogs} expenses={activeBusiness.expenses} currency={currency} exchangeRates={rates} onSaveExpense={handleSaveExpense} /> : <Navigate to="/profile" replace />} />
+            <Route path="/inventory" element={can('MANAGE_STOCK') ? <InventoryList items={activeBusiness.items} onDelete={(id) => updateActiveBusiness(b => ({...b, items: b.items.filter(i => i.id !== id)}))} onEdit={(i) => { setEditingItem(i); navigate('/add'); }} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} /> : <Navigate to="/" replace />} />
+            <Route path="/add" element={can('MANAGE_STOCK') ? <AddItemForm onSave={handleSaveProduct} onCancel={() => navigate('/inventory')} editingItem={editingItem} allItems={activeBusiness.items} suppliers={activeBusiness.suppliers} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} /> : <Navigate to="/" replace />} />
+            <Route path="/sales" element={can('POS_SELL') ? <SalesPage items={activeBusiness.items} customers={activeBusiness.customers || []} onBatchSale={handleBatchSale} onAddCustomer={(n, p) => { const c = {id: generateID(), name: n, phone: p, totalSpent: 0, loyaltyPoints: 0, lastVisit: new Date().toISOString(), email: '', address: '', notes: ''}; updateActiveBusiness(b => ({...b, customers: [...(b.customers || []), c]})); return c; }} currency={currency} exchangeRates={rates} /> : <Navigate to="/" replace />} />
+            <Route path="/profile" element={<ProfilePage session={currentSession} activeBusiness={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} onAddBusiness={(b) => setAccounts(p => p.map(a => a.id === currentSession.account.id ? {...a, businesses: [...a.businesses, b]} : a))} onSwitchBusinessSecure={(id) => setCurrentSession({...currentSession, businessId: id})} currency={currency} exchangeRates={rates} onRenewSubscription={(id, plan) => {}} />} />
+            <Route path="/settings" element={can('SETTINGS') ? <Settings rates={rates} onUpdateRate={(c, r) => setRates(p => ({...p, [c]: r}))} onResetRates={() => setRates(DEFAULT_EXCHANGE_RATES)} onClearInventory={() => updateActiveBusiness(b => ({...b, items: []}))} /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
@@ -672,12 +282,5 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  return (
-    <Router>
-      <AppContent />
-    </Router>
-  );
-};
-
+const App: React.FC = () => <Router><AppContent /></Router>;
 export default App;
