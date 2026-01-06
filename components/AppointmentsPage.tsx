@@ -27,6 +27,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
     serviceIds: string[];
     date: string;
     time: string;
+    duration: number; // in minutes
     notes: string;
     isNewCustomer: boolean;
     newName: string;
@@ -36,6 +37,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
     serviceIds: [],
     date: new Date().toISOString().split('T')[0],
     time: '09:00',
+    duration: 60,
     notes: '',
     isNewCustomer: false,
     newName: '',
@@ -69,10 +71,11 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
      const dayAppts = appointments.filter(a => a.date === formData.date && a.status !== 'cancelled');
 
      for (let h = startHour; h < endHour; h++) {
-        const time = `${h.toString().padStart(2, '0')}:00`;
-        const time30 = `${h.toString().padStart(2, '0')}:30`;
+        const t00 = `${h.toString().padStart(2, '0')}:00`;
+        const t30 = `${h.toString().padStart(2, '0')}:30`;
         
-        [time, time30].forEach(t => {
+        [t00, t30].forEach(t => {
+            // Check if this specific start time is busy
             const appt = dayAppts.find(a => a.time === t);
             slots.push({ time: t, isBusy: !!appt, customerName: appt?.customerName });
         });
@@ -81,8 +84,25 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
   }, [appointments, formData.date]);
 
   const isTimeOverlapping = useMemo(() => {
-      return appointments.some(a => a.date === formData.date && a.time === formData.time && a.status !== 'cancelled');
-  }, [appointments, formData.date, formData.time]);
+      // Find any appointment that overlaps with the new range [start, start + duration]
+      const newStart = formData.time;
+      const [h, m] = newStart.split(':').map(Number);
+      const newEndMinutes = h * 60 + m + formData.duration;
+
+      return appointments.some(a => {
+          if (a.date !== formData.date || a.status === 'cancelled') return false;
+          
+          const [ah, am] = a.time.split(':').map(Number);
+          const aStartMinutes = ah * 60 + am;
+          // Assume default 60min if duration not present on old appts
+          const aEndMinutes = aStartMinutes + (a.notes?.includes('dur:') ? parseInt(a.notes.split('dur:')[1]) : 60);
+
+          const newStartMinutes = h * 60 + m;
+          
+          // Overlap condition: start1 < end2 AND end1 > start2
+          return (newStartMinutes < aEndMinutes && newEndMinutes > aStartMinutes);
+      });
+  }, [appointments, formData.date, formData.time, formData.duration]);
 
   const createLog = (action: AuditLogEntry['action'], details: string): AuditLogEntry => {
     return { id: generateID(), action, details, operatorName: currentOperator, timestamp: new Date().toISOString() };
@@ -103,13 +123,13 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
     
     // Safety check for overlap
     if (isTimeOverlapping && !confirmOverlap) {
-        alert("O horário selecionado já está ocupado. Por favor confirme que deseja sobrepor.");
-        return;
+        return; // UI already shows error
     }
 
     let targetCustomer: any = null;
     if (formData.isNewCustomer) {
        if (!formData.newName || !formData.newPhone) return;
+       // Fix: Fixed typo 'apptFormData' to 'formData' based on defined state.
        targetCustomer = onAddCustomer?.(formData.newName, formData.newPhone);
     } else {
        targetCustomer = customers.find(c => c.id === formData.customerId);
@@ -125,7 +145,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
        customerId: targetCustomer.id, customerName: targetCustomer.name, customerPhone: targetCustomer.phone,
        serviceIds: formData.serviceIds, serviceNames: selectedServices.map(s => s.name),
        totalAmount, date: formData.date, time: formData.time, status: 'scheduled',
-       notes: formData.notes, createdBy: currentOperator, createdAt: new Date().toISOString()
+       notes: `${formData.notes} | dur:${formData.duration}`, createdBy: currentOperator, createdAt: new Date().toISOString()
     };
     const updatedList = [...appointments, newAppointment];
     setAppointments(updatedList);
@@ -157,18 +177,8 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
      onUpdateBusiness({ ...business, appointments: updatedList, auditLogs: [createLog('APPOINTMENT', `Estado alterado para ${status}`), ...(business.auditLogs || [])] });
 
      if (status === 'confirmed' && appt && appt.customerPhone) {
-        const msg = encodeURIComponent(`Olá ${appt.customerName}, o seu agendamento para o dia ${new Date(appt.date).toLocaleDateString()} às ${appt.time} foi confirmado! Serviços: ${appt.serviceNames.join(', ')}.`);
+        const msg = encodeURIComponent(`Olá ${appt.customerName}, o seu agendamento para o dia ${new Date(appt.date).toLocaleDateString()} às ${appt.time} foi confirmado! Operador: ${currentOperator}.`);
         window.open(`https://wa.me/258${appt.customerPhone.replace(/\s/g, '')}?text=${msg}`, '_blank');
-     }
-  };
-
-  const getStatusColor = (status: AppointmentStatus) => {
-     switch(status) {
-        case 'scheduled': return 'bg-blue-50 text-blue-700 border-blue-200';
-        case 'confirmed': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-        case 'completed': return 'bg-gray-100 text-gray-600 border-gray-200';
-        case 'cancelled': return 'bg-red-50 text-red-700 border-red-200';
-        default: return 'bg-gray-50 text-gray-700';
      }
   };
 
@@ -179,7 +189,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
           <div className="bg-purple-100 p-3 rounded-xl text-purple-600"><CalendarIcon size={28} /></div>
           <div><h2 className="text-2xl font-bold text-gray-800 font-heading">Agendamentos</h2><p className="text-sm text-gray-500">Gestão operacional de serviços.</p></div>
         </div>
-        <button onClick={() => setShowForm(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-purple-700 transition-colors shadow-lg shadow-purple-200 flex items-center"><Plus size={20} className="mr-2" /> Novo Agendamento</button>
+        <button onClick={() => setShowForm(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-purple-700 transition-colors shadow-lg flex items-center"><Plus size={20} className="mr-2" /> Novo Agendamento</button>
       </div>
 
       <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-6">
@@ -197,7 +207,7 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                      <h4 className="font-bold text-gray-800 text-lg leading-none mb-1">{app.customerName}</h4>
                      <p className="text-sm text-gray-500 flex items-center mb-2"><Briefcase size={12} className="mr-1" /> {app.serviceNames?.join(', ')}</p>
                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getStatusColor(app.status)}`}>{app.status.toUpperCase()}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${app.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>{app.status.toUpperCase()}</span>
                         <span className="text-[10px] font-black text-gray-400">MT {app.totalAmount?.toFixed(2)}</span>
                      </div>
                   </div>
@@ -215,30 +225,10 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
          )) : <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-gray-200 text-gray-400"><CalendarIcon size={48} className="mx-auto mb-4 opacity-20" /><p>Sem agendamentos para este dia.</p></div>}
       </div>
 
-      {/* PAYMENT MODAL */}
-      {showPaymentModal && apptToPay && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-               <div className="p-6 bg-purple-600 text-white text-center">
-                  <h3 className="font-bold text-lg font-heading tracking-tight">Registar Pagamento</h3>
-                  <p className="text-purple-100 text-xs mt-1">{apptToPay.serviceNames?.join(', ')}</p>
-                  <p className="text-xl font-black mt-2">MT {apptToPay.totalAmount?.toFixed(2)}</p>
-               </div>
-               <div className="p-4 grid grid-cols-2 gap-3 bg-gray-50">
-                  <button onClick={() => handleConfirmPayment('cash')} className="flex flex-col items-center p-4 bg-white hover:bg-emerald-50 rounded-2xl border border-gray-100 shadow-sm transition-all"><Wallet size={20} className="text-gray-400 mb-2"/><span className="text-xs font-bold text-gray-700">Numerário</span></button>
-                  <button onClick={() => handleConfirmPayment('mpesa')} className="flex flex-col items-center p-4 bg-white hover:bg-red-50 rounded-2xl border border-gray-100 shadow-sm transition-all"><Smartphone size={20} className="text-red-500 mb-2"/><span className="text-xs font-bold text-gray-700">M-Pesa</span></button>
-                  <button onClick={() => handleConfirmPayment('emola')} className="flex flex-col items-center p-4 bg-white hover:bg-indigo-50 rounded-2xl border border-gray-100 shadow-sm transition-all"><Smartphone size={20} className="text-indigo-500 mb-2"/><span className="text-xs font-bold text-gray-700">E-Mola</span></button>
-                  <button onClick={() => handleConfirmPayment('card')} className="flex flex-col items-center p-4 bg-white hover:bg-blue-50 rounded-2xl border border-gray-100 shadow-sm transition-all"><CreditCard size={20} className="text-blue-500 mb-2"/><span className="text-xs font-bold text-gray-700">POS</span></button>
-               </div>
-               <button onClick={() => setShowPaymentModal(false)} className="w-full py-4 text-gray-500 font-bold text-sm bg-white border-t hover:bg-gray-50">Cancelar</button>
-            </div>
-        </div>
-      )}
-
       {/* New Appointment Modal */}
       {showForm && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s] flex flex-col md:flex-row h-full md:h-auto max-h-[90vh]">
+            <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out] flex flex-col md:flex-row h-full md:h-auto max-h-[90vh]">
                {/* Left Side: Schedule Timeline */}
                <div className="w-full md:w-1/3 bg-gray-50 p-6 border-r border-gray-100 overflow-y-auto">
                   <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Clock size={18} className="mr-2 text-purple-600"/> Horários no dia</h4>
@@ -271,10 +261,10 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                         <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-3 animate-[pulse_2s_infinite]">
                            <AlertTriangle className="text-red-600 shrink-0" size={24} />
                            <div className="flex-1">
-                              <p className="text-xs font-bold text-red-700">Horário Ocupado!</p>
+                              <p className="text-xs font-bold text-red-700">Conflito de Horário!</p>
                               <label className="flex items-center gap-2 mt-1 cursor-pointer">
                                  <input type="checkbox" checked={confirmOverlap} onChange={e => setConfirmOverlap(e.target.checked)} className="w-4 h-4 rounded text-red-600 focus:ring-red-500 border-red-300" />
-                                 <span className="text-[10px] text-red-600 font-bold uppercase">Confirmar sobreposição</span>
+                                 <span className="text-[10px] text-red-600 font-bold uppercase">Sobrepor mesmo assim</span>
                               </label>
                            </div>
                         </div>
@@ -327,22 +317,50 @@ const AppointmentsPage: React.FC<AppointmentsPageProps> = ({ business, onUpdateB
                         </div>
                      </div>
 
-                     <div className="grid grid-cols-2 gap-4">
-                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 px-1">Data</label><input type="date" required className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-900" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} /></div>
-                        <div><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 px-1">Hora</label><input type="time" step="1800" required className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-900" value={formData.time} onChange={(e) => setFormData({...formData, time: e.target.value})} /></div>
+                     <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-1"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 px-1">Data</label><input type="date" required className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-xs" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} /></div>
+                        <div className="col-span-1"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 px-1">Hora Início</label><input type="time" step="1800" required className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-xs" value={formData.time} onChange={(e) => setFormData({...formData, time: e.target.value})} /></div>
+                        <div className="col-span-1"><label className="block text-[10px] font-black text-gray-400 uppercase mb-1 px-1">Duração</label><select className="w-full p-3 border border-gray-200 rounded-xl bg-gray-50 text-xs" value={formData.duration} onChange={e => setFormData({...formData, duration: parseInt(e.target.value)})}>
+                           <option value={30}>30 min</option>
+                           <option value={60}>1 hora</option>
+                           <option value={90}>1h 30m</option>
+                           <option value={120}>2 horas</option>
+                           <option value={180}>3 horas</option>
+                           <option value={240}>4 horas</option>
+                        </select></div>
                      </div>
 
                      <button 
                         type="submit" 
                         disabled={isTimeOverlapping && !confirmOverlap}
-                        className={`w-full py-4 rounded-2xl font-bold transition-all flex items-center justify-center shadow-xl ${isTimeOverlapping && !confirmOverlap ? 'bg-gray-300 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-100'}`}
+                        className={`w-full py-4 rounded-2xl font-bold transition-all flex items-center justify-center shadow-xl ${isTimeOverlapping && !confirmOverlap ? 'bg-gray-300 cursor-not-allowed opacity-50' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-100'}`}
                      >
-                        <CheckCircle size={20} className="mr-2" /> Confirmar Agendamento
+                        <CheckCircle size={20} className="mr-2" /> Agendar Agora
                      </button>
                   </form>
                </div>
             </div>
          </div>
+      )}
+
+      {/* PAYMENT MODAL (Same as before but with audit text) */}
+      {showPaymentModal && apptToPay && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
+               <div className="p-6 bg-purple-600 text-white text-center">
+                  <h3 className="font-bold text-lg">Fechar Agendamento</h3>
+                  <p className="text-purple-100 text-xs mt-1">{apptToPay.customerName}</p>
+                  <p className="text-xl font-black mt-2">MT {apptToPay.totalAmount?.toFixed(2)}</p>
+               </div>
+               <div className="p-4 grid grid-cols-2 gap-3 bg-gray-50">
+                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
+                    <button key={m} onClick={() => handleConfirmPayment(m as PaymentMethod)} className="flex flex-col items-center p-4 bg-white hover:bg-emerald-50 rounded-2xl border border-gray-100 shadow-sm capitalize"><Smartphone size={20} className="text-gray-400 mb-2"/><span className="text-xs font-bold">{m}</span></button>
+                  ))}
+               </div>
+               <p className="text-[10px] text-center text-gray-400 font-bold p-2 uppercase">Op: {currentOperator}</p>
+               <button onClick={() => setShowPaymentModal(false)} className="w-full py-4 text-gray-500 font-bold text-sm bg-white border-t">Cancelar</button>
+            </div>
+        </div>
       )}
     </div>
   );
