@@ -1,15 +1,16 @@
 
 import React, { useMemo, useState } from 'react';
-import { InventoryItem, CurrencyCode, SaleRecord, AuditLogEntry, Expense, PaymentMethod, Appointment, Category, Unit, Customer, AppointmentStatus } from '../types';
+import { InventoryItem, CurrencyCode, SaleRecord, AuditLogEntry, Expense, PaymentMethod, Customer } from '../types';
 import { CURRENCY_SYMBOLS, generateID } from '../constants';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { 
-  AlertTriangle, Package, Calendar, TrendingUp, Wallet, ShoppingBag, 
-  Clock, X, Receipt, Activity, Smartphone, CreditCard, User, 
-  Briefcase, AlertOctagon, CheckCircle, Award, Plus, UserPlus, 
-  ArrowUpRight, ArrowDownRight, Search, ArrowDownCircle, Users, Percent, Ticket, AlertCircle, Lock, ArrowRight, ShieldCheck, Trash2
+  AlertTriangle, TrendingUp, Wallet, ShoppingBag, 
+  Clock, X, Receipt, Activity, Smartphone, CreditCard, 
+  CheckCircle, Award, Plus, ArrowDownCircle, Star, Zap, Info, Trash2, PackagePlus, User, ArrowUpRight, ArrowDownRight, Target, Users, BarChart3, Calculator
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -23,56 +24,33 @@ interface DashboardProps {
   activeBusinessName?: string;
   currentOperator?: string;
   expenses?: Expense[]; 
-  appointments?: Appointment[];
   customers?: Customer[];
   onSaveExpense?: (expense: Expense) => void; 
   onPayExpense?: (expenseId: string, method: PaymentMethod) => void;
   onDeleteExpense?: (id: string) => void;
-  onUpdateAppointmentStatus?: (id: string, status: AppointmentStatus) => void;
-  onCompleteAppointment?: (appointmentId: string, method: PaymentMethod) => void;
-  onSaveAppointment?: (appt: Appointment) => void;
-  onAddCustomer?: (name: string, phone: string) => any;
 }
-
-const CHART_COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#22C55E'];
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   items, sales = [], logs = [], currency, exchangeRates, onCloseRegister, 
   activeBusinessName = "Negócio", currentOperator = "Operador", expenses = [], 
-  appointments = [], customers = [], onSaveExpense, onPayExpense,
-  onUpdateAppointmentStatus, onCompleteAppointment, onSaveAppointment, onAddCustomer
+  customers = [], onSaveExpense, onPayExpense, onDeleteExpense, onRestock
 }) => {
   const symbol = CURRENCY_SYMBOLS[currency];
   const rate = Number(exchangeRates[currency] || 1);
 
   // States
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const [showApptForm, setShowApptForm] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [showExpenseActionModal, setShowExpenseActionModal] = useState(false);
   const [showPaymentSelector, setShowPaymentSelector] = useState(false);
-  const [showApptPaymentModal, setShowApptPaymentModal] = useState(false);
-  const [appointmentToComplete, setAppointmentToComplete] = useState<Appointment | null>(null);
+  const [showRestockModal, setShowRestockModal] = useState<InventoryItem | null>(null);
+  const [restockQty, setRestockQty] = useState(10);
   
-  // Detail Modal States
-  const [detailedSale, setDetailedSale] = useState<SaleRecord | null>(null);
-  const [detailedExpense, setDetailedExpense] = useState<Expense | null>(null);
-  const [detailedLog, setDetailedLog] = useState<AuditLogEntry | null>(null);
-
-  const [rightPanelTab, setRightPanelTab] = useState<'sales' | 'outflows' | 'audit'>('sales');
-  const [selectedProductsForChart, setSelectedProductsForChart] = useState<string[]>([]);
-
-  const [expenseFormData, setExpenseFormData] = useState({
-    name: '', amount: '', type: 'variable' as 'fixed' | 'variable', paymentDay: '1'
-  });
-
-  const [apptFormData, setApptFormData] = useState({
-    customerId: '', serviceIds: [] as string[], date: new Date().toISOString().split('T')[0], time: '09:00', 
-    duration: 60, notes: '', isNewCustomer: false, newName: '', newPhone: ''
-  });
-  
-  const [confirmOverlap, setConfirmOverlap] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [detailModal, setDetailModal] = useState<{type: 'sale' | 'expense' | 'log', data: any} | null>(null);
+  const [rightPanelTab, setRightPanelTab] = useState<'sales' | 'audit'>('sales');
+  const [activeChartProducts, setActiveChartProducts] = useState<string[]>([]);
+  const [chartMetric, setChartMetric] = useState<'revenue' | 'quantity'>('revenue');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -80,750 +58,516 @@ const Dashboard: React.FC<DashboardProps> = ({
     const d = new Date(iso);
     return {
       date: d.toLocaleDateString('pt-PT'),
-      time: d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
-      full: `${d.toLocaleDateString('pt-PT')} ${d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`
+      time: d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      full: `${d.toLocaleDateString('pt-PT')} às ${d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
     };
   };
 
-  const stats = useMemo(() => {
-    const safeSales = Array.isArray(sales) ? sales : [];
-    const safeExpenses = Array.isArray(expenses) ? expenses : [];
-    
-    const todaysSales = safeSales.filter(s => s.date && s.date.startsWith(todayStr));
-    const dailyRevenueValue = todaysSales.reduce((acc, s) => acc + (s.totalRevenue || 0), 0);
-    const dailyRevenue: number = Number(dailyRevenueValue) * Number(rate);
-    
-    const dailyProfitValue = todaysSales.reduce((acc, s) => acc + (s.totalProfit || 0), 0);
-    const dailyProfitRaw: number = Number(dailyProfitValue) * Number(rate);
-    
-    const todaysPaidExpenses = safeExpenses.filter(e => e.lastPaidDate?.startsWith(todayStr));
-    const dailyOutflowsValue = todaysPaidExpenses.reduce((acc, e) => acc + (e.amount || 0), 0);
-    const dailyOutflows: number = Number(dailyOutflowsValue) * Number(rate);
+  const lowStockItems = useMemo(() => items.filter(i => i.type === 'product' && i.quantity <= i.lowStockThreshold), [items]);
 
-    const dailyNetBalance: number = Number(dailyRevenue) - Number(dailyOutflows);
-    // Fix: Cast dailyProfitRaw and dailyRevenue to Number explicitly to resolve arithmetic type error
-    const dailyProfitPercent = Number(dailyRevenue) > 0 ? (Number(dailyProfitRaw) / Number(dailyRevenue)) * 100 : 0;
+  const stats = useMemo(() => {
+    const todaysSales = sales.filter(s => s.date && s.date.startsWith(todayStr));
+    const dailyRevenue = todaysSales.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0) * rate;
+    const dailyProfitRaw = todaysSales.reduce((acc, s) => acc + (Number(s.totalProfit) || 0), 0) * rate;
+    
+    const todaysPaidExpenses = expenses.filter(e => e.lastPaidDate?.startsWith(todayStr) && e.isPaid);
+    const dailyOutflows = todaysPaidExpenses.reduce((acc, e) => acc + (e.amount || 0), 0) * rate;
+
+    // Fixed: Cast dailyRevenue and dailyOutflows to number to ensure arithmetic operations are valid
+    const dailyNetBalance = Number(dailyRevenue) - Number(dailyOutflows);
+    const dailyProfitPercent = dailyRevenue > 0 ? (dailyProfitRaw / dailyRevenue) * 100 : 0;
     const salesCount = new Set(todaysSales.map(s => s.transactionId)).size;
     const avgTicket = salesCount > 0 ? dailyRevenue / salesCount : 0;
 
-    const productsInSales = Array.from(new Set(todaysSales.map(s => s.itemName))).sort();
-    const hours = Array.from({ length: 14 }, (_, i) => `${(i + 8).toString().padStart(2, '0')}:00`);
-    
+    // Top Vendas
+    const topSalesData = Object.entries(todaysSales.reduce((acc, s) => {
+        acc[s.itemName] = (acc[s.itemName] || 0) + (Number(s.quantity) || 0);
+        return acc;
+    }, {} as Record<string, number>))
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value).slice(0, 3);
+
+    // Cliente do Dia
+    const topCustomer = Object.entries(todaysSales.reduce((acc, s) => {
+        if (!s.customerName) return acc;
+        // Fixed: Ensure multiplication uses explicit Number type to avoid TS2362
+        acc[s.customerName] = (acc[s.customerName] || 0) + (Number(s.totalRevenue) * Number(rate));
+        return acc;
+    }, {} as Record<string, number>))
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)[0];
+
+    // Gráfico Dinâmico
+    const productsInSales = Array.from(new Set(todaysSales.map(s => s.itemName))).slice(0, 5);
+    const hours = Array.from({ length: 12 }, (_, i) => `${(i + 8).toString().padStart(2, '0')}:00`);
     const hourlyFlowData = hours.map(h => {
         const hourInt = parseInt(h.split(':')[0]);
         const data: any = { time: h };
         productsInSales.forEach(p => {
-            const productRevenue = todaysSales
-                .filter(s => new Date(s.date).getHours() === hourInt && s.itemName === p)
-                .reduce((acc, s) => acc + Number(s.totalRevenue || 0), 0) * Number(rate || 1);
-            data[p] = Math.round(productRevenue);
+            const match = todaysSales.filter(s => new Date(s.date).getHours() === hourInt && s.itemName === p);
+            data[p] = chartMetric === 'revenue' 
+              ? match.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0)
+              : match.reduce((acc, s) => acc + Number(s.quantity), 0);
         });
-        data.total = productsInSales.reduce((acc, p) => acc + (data[p] || 0), 0);
+        const totalMatch = todaysSales.filter(s => new Date(s.date).getHours() === hourInt);
+        data.total = chartMetric === 'revenue'
+          ? totalMatch.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0)
+          : totalMatch.reduce((acc, s) => acc + Number(s.quantity), 0);
         return data;
     });
 
-    const topSalesData = Object.entries(todaysSales.reduce((acc, s) => {
-        acc[s.itemName] = (acc[s.itemName] || 0) + s.quantity;
-        return acc;
-    }, {} as Record<string, number>))
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-
-    const topClientsData = Array.from(todaysSales.reduce((acc, s) => {
-        const cId = s.customerId || 'Final';
-        if (!acc.has(cId)) acc.set(cId, { name: s.customerName || 'Consumidor Final', value: 0 });
-        acc.get(cId).value += s.totalRevenue * rate;
-        return acc;
-    }, new Map()).values()).sort((a: any, b: any) => b.value - a.value).slice(0, 5);
-
     return { 
       dailyRevenue, dailyOutflows, dailyNetBalance, dailyProfitPercent, 
-      avgTicket, salesCount, topSalesData, topClientsData, productsInSales, hourlyFlowData, todaysPaidExpenses,
-      clientOfTheDay: topClientsData[0], todaysSales
+      salesCount, topSalesData, topCustomer, hourlyFlowData, productsInSales,
+      todaysPaidExpenses, todaysSales, avgTicket
     };
-  }, [sales, expenses, rate, todayStr]);
+  }, [sales, expenses, rate, todayStr, chartMetric]);
 
-  const expenseStats = useMemo(() => {
-     const safeExpenses = Array.isArray(expenses) ? expenses : [];
-     const list = safeExpenses
-        .filter(e => {
-            const wasPaidToday = e.lastPaidDate?.startsWith(todayStr);
-            if (e.type === 'variable') return !e.isPaid || wasPaidToday;
-            return true; 
-        })
-        .sort((a, b) => new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime());
-     
-     const displayExpenses = list.map(exp => {
-           const wasPaidToday = exp.lastPaidDate?.startsWith(todayStr);
-           let statusColor = ''; let statusLabel = '';
-           if (wasPaidToday) { statusColor = 'text-emerald-500 bg-emerald-50'; statusLabel = 'Liquidado Hoje'; }
-           else {
-              const daysLeft = Math.ceil((new Date(exp.nextDueDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-              if (daysLeft < 0) { statusColor = 'text-red-500 bg-red-50'; statusLabel = `Atrasado ${Math.abs(daysLeft)}d`; }
-              else if (daysLeft === 0) { statusColor = 'text-orange-600 bg-orange-50'; statusLabel = `Hoje`; }
-              else if (daysLeft <= 3) { statusColor = 'text-amber-600 bg-amber-50'; statusLabel = `Vence em ${daysLeft}d`; }
-              else { statusColor = 'text-slate-400 bg-slate-50'; statusLabel = new Date(exp.nextDueDate).toLocaleDateString('pt-PT'); }
-           }
-           return { ...exp, statusColor, statusLabel, wasPaidToday };
-        });
-     return { list: displayExpenses, pendingCount: displayExpenses.filter(e => !e.wasPaidToday).length };
-  }, [expenses, todayStr]);
-
-  const todaysAppointmentsList = useMemo(() => {
-    return (appointments || [])
-      .filter(a => a.date === todayStr && a.status !== 'completed' && a.status !== 'cancelled')
-      .sort((a, b) => a.time.localeCompare(b.time));
-  }, [appointments, todayStr]);
-
-  const services = useMemo(() => items.filter(i => i.type === 'service'), [items]);
-  const filteredCustomers = useMemo(() => {
-     if (!customerSearch) return [];
-     const lower = customerSearch.toLowerCase();
-     return (customers || []).filter(c => c.name.toLowerCase().includes(lower) || c.phone.includes(lower));
-  }, [customers, customerSearch]);
-
-  const scheduleSlots = useMemo(() => {
-    const slots = [];
-    const dayAppts = (appointments || []).filter(a => a.date === apptFormData.date && a.status !== 'cancelled' && a.status !== 'completed');
-    for (let h = 8; h < 21; h++) {
-        [0, 30].forEach(m => {
-            const t = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            const appt = dayAppts.find(a => a.time === t);
-            slots.push({ time: t, isBusy: !!appt, customerName: appt?.customerName });
-        });
-    }
-    return slots;
-  }, [appointments, apptFormData.date]);
-
-  const isTimeOverlapping = useMemo(() => {
-    if (!appointments) return false;
-    const [h, m] = apptFormData.time.split(':').map(Number);
-    const newStartMin = h * 60 + m;
-    const newEndMin = newStartMin + apptFormData.duration;
-    return appointments.some(a => {
-        if (a.date !== apptFormData.date || a.status === 'cancelled' || a.status === 'completed') return false;
-        const [ah, am] = a.time.split(':').map(Number);
-        const aStartMin = ah * 60 + am;
-        const aDur = a.notes?.includes('dur:') ? parseInt(a.notes.split('dur:')[1]) : 60;
-        return (newStartMin < aStartMin + aDur && newEndMin > aStartMin);
-    });
-  }, [appointments, apptFormData.date, apptFormData.time, apptFormData.duration]);
-
-  // Handlers
-  const handleExpenseSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(expenseFormData.amount);
-    if (!expenseFormData.name || isNaN(amount)) return;
-    
-    const today = new Date();
-    let nextDueDate = today.toISOString();
-    if (expenseFormData.type === 'fixed') {
-      const day = parseInt(expenseFormData.paymentDay);
-      const targetDate = new Date(today.getFullYear(), today.getMonth(), day);
-      if (today.getDate() > day) targetDate.setMonth(targetDate.getMonth() + 1);
-      nextDueDate = targetDate.toISOString();
-    }
-
-    onSaveExpense?.({
-      id: generateID(),
-      name: expenseFormData.name,
-      amount: amount,
-      type: expenseFormData.type,
-      paymentDay: expenseFormData.type === 'fixed' ? parseInt(expenseFormData.paymentDay) : undefined,
-      nextDueDate,
-      isPaid: false
-    });
-    
-    setShowExpenseForm(false);
-    setExpenseFormData({ name: '', amount: '', type: 'variable', paymentDay: '1' });
+  const handleRestockClick = (e: React.MouseEvent, item: InventoryItem) => {
+    e.stopPropagation();
+    setShowRestockModal(item);
   };
 
-  const handleApptSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (apptFormData.serviceIds.length === 0 || (isTimeOverlapping && !confirmOverlap)) return;
-    
-    let target: any = null;
-    if (apptFormData.isNewCustomer) {
-       target = onAddCustomer?.(apptFormData.newName, apptFormData.newPhone);
-    } else {
-       target = (customers || []).find(c => c.id === apptFormData.customerId);
+  const confirmRestock = () => {
+    if (showRestockModal && onRestock) {
+      onRestock(showRestockModal.id, restockQty);
+      setShowRestockModal(null);
     }
-    
-    if (!target) return;
-    
-    const selectedSrvs = items.filter(i => apptFormData.serviceIds.includes(i.id));
-    onSaveAppointment?.({
-      id: generateID(), customerId: target.id, customerName: target.name, customerPhone: target.phone,
-      serviceIds: apptFormData.serviceIds, serviceNames: selectedSrvs.map(s => s.name),
-      totalAmount: selectedSrvs.reduce((acc, s) => acc + (s.sellingPrice || s.price), 0),
-      date: apptFormData.date, time: apptFormData.time, status: 'scheduled',
-      notes: `${apptFormData.notes} | dur:${apptFormData.duration}`,
-      createdBy: currentOperator || 'Admin', createdAt: new Date().toISOString()
-    });
-    
-    setShowApptForm(false);
-    setApptFormData({ customerId: '', serviceIds: [], date: todayStr, time: '09:00', duration: 60, notes: '', isNewCustomer: false, newName: '', newPhone: '' });
-    setCustomerSearch('');
   };
 
-  const toggleProductInChart = (prod: string) => {
-    setSelectedProductsForChart(prev => prev.includes(prod) ? prev.filter(p => p !== prod) : [...prev, prod]);
-  };
-
-  const getMethodIcon = (method: string) => {
+  const getMethodIcon = (method?: string) => {
     switch(method) {
       case 'mpesa': return <Smartphone size={14} className="text-red-500" />;
       case 'emola': return <Smartphone size={14} className="text-indigo-500" />;
       case 'card': return <CreditCard size={14} className="text-blue-500" />;
-      default: return <Wallet size={14} className="text-gray-500" />;
+      default: return <Wallet size={14} className="text-emerald-500" />;
     }
   };
 
+  const generateCloseRegisterPDF = async () => {
+    setIsGeneratingPDF(true);
+    try {
+      const doc = new jsPDF();
+      doc.setFillColor(15, 23, 42); 
+      doc.rect(0, 0, doc.internal.pageSize.getWidth(), 40, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(20);
+      doc.text(activeBusinessName?.toUpperCase() || "RELATÓRIO", 15, 25);
+      doc.setFontSize(10);
+      doc.text(`FECHO DE TURNO: ${new Date().toLocaleString()}`, 15, 33);
+      
+      autoTable(doc, {
+        startY: 50,
+        head: [['KPI', 'Valor']],
+        body: [
+          ['Faturação Bruta', `${symbol} ${stats.dailyRevenue.toFixed(2)}`],
+          ['Saídas Liquidadas', `${symbol} ${stats.dailyOutflows.toFixed(2)}`],
+          ['Saldo Líquido em Caixa', `${symbol} ${stats.dailyNetBalance.toFixed(2)}`],
+          ['Transações', `${stats.salesCount}`],
+          ['Ticket Médio', `${symbol} ${stats.avgTicket.toFixed(2)}`],
+          ['Margem Operacional', `${stats.dailyProfitPercent.toFixed(1)}%`]
+        ],
+        theme: 'striped'
+      });
+      doc.save(`Fecho_${activeBusinessName}_${todayStr}.pdf`);
+      onCloseRegister?.();
+    } catch (e) { alert("Erro ao gerar PDF."); }
+    finally { setIsGeneratingPDF(false); }
+  };
+
   return (
-    <div className="p-4 md:p-8 space-y-8 relative pb-24 md:pb-8 max-w-[1600px] mx-auto animate-[fadeIn_0.3s_ease-out]">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div>
-          <h2 className="text-3xl font-black text-slate-800 font-heading tracking-tight">Painel de Controlo</h2>
-          <p className="text-slate-500 mt-1 flex items-center font-medium">
-            <Activity size={14} className="mr-2 text-emerald-500" /> 
-            {activeBusinessName} • Auditoria Inteligente
+    <div className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-10 pb-24 md:pb-10 max-w-[1600px] mx-auto animate-[fadeIn_0.4s_ease-out] bg-slate-50/30">
+      
+      {/* Header Premium - Adaptado para Mobile */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <div className="w-full md:w-auto">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 font-heading tracking-tight">Consola Global</h2>
+          <p className="text-slate-400 mt-2 flex items-center font-bold uppercase text-[9px] sm:text-[10px] tracking-[0.15em] sm:tracking-[0.2em]">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse shrink-0" /> Operação ativa: <span className="ml-1 text-slate-600 truncate">{currentOperator}</span>
           </p>
         </div>
-        {onCloseRegister && (
-          <button onClick={() => onCloseRegister()} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl hover:bg-black transition-all flex items-center active:scale-95">
-             <Lock size={18} className="mr-2" /> Fechar Turno
+        <div className="w-full md:w-auto flex gap-3">
+          <button 
+            onClick={generateCloseRegisterPDF} 
+            className="flex-1 md:flex-none bg-slate-900 text-white px-5 sm:px-8 py-3.5 sm:py-4 rounded-[1.2rem] sm:rounded-[1.5rem] font-bold shadow-xl hover:bg-black transition-all flex items-center justify-center active:scale-95 text-[10px] sm:text-xs uppercase tracking-widest"
+          >
+            <Receipt size={18} className="mr-2 sm:mr-3 text-emerald-400" /> Auditoria PDF
           </button>
-        )}
+        </div>
       </div>
 
-      {/* Primary KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { label: 'Receita Bruta', val: `${symbol} ${stats.dailyRevenue.toFixed(0)}`, icon: ArrowUpRight, color: 'emerald' },
-          { label: 'Saídas Pagas', val: `${symbol} ${stats.dailyOutflows.toFixed(0)}`, icon: ArrowDownRight, color: 'red' },
-          { label: 'Balanço Líquido', val: `${symbol} ${stats.dailyNetBalance.toFixed(0)}`, icon: TrendingUp, color: 'indigo' },
-          { label: 'Artigos Ativos', val: items.length, icon: Package, color: 'orange' }
-        ].map((k, i) => (
-          <div key={i} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 relative overflow-hidden group">
-            <div className={`absolute -right-4 -top-4 bg-${k.color}-50 w-24 h-24 rounded-full group-hover:scale-110 transition-transform opacity-50`}></div>
-            <div className="relative">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{k.label}</p>
-              <p className={`text-3xl font-black font-heading ${k.color === 'indigo' && stats.dailyNetBalance < 0 ? 'text-red-500' : 'text-slate-900'}`}>{k.val}</p>
-              <div className={`mt-4 flex items-center text-[10px] font-bold text-${k.color}-600 bg-${k.color}-50 w-fit px-2 py-1 rounded-lg`}>
-                 <k.icon size={12} className="mr-1" /> Hoje
+      {/* Alerta de Stock com Reposição Direta */}
+      {lowStockItems.length > 0 && (
+        <div className="bg-white/60 backdrop-blur-md border border-red-100 rounded-[2rem] sm:rounded-[2.5rem] p-4 sm:p-6 shadow-2xl shadow-red-50/40 flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
+          <div className="flex items-center gap-3 sm:gap-5 w-full md:w-auto">
+            <div className="bg-red-500 p-3 sm:p-4 rounded-[1.4rem] sm:rounded-[1.8rem] text-white shadow-xl shadow-red-200"><AlertTriangle size={20} className="sm:w-6 sm:h-6" /></div>
+            <div>
+              <h4 className="text-base sm:text-xl font-black text-slate-800">Urgência de Stock</h4>
+              <p className="text-[9px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">{lowStockItems.length} itens precisam de atenção</p>
+            </div>
+          </div>
+          <div className="flex gap-3 overflow-x-auto w-full md:max-w-2xl pb-2 no-scrollbar scroll-smooth">
+            {lowStockItems.slice(0, 8).map(item => (
+              <div key={item.id} className="bg-white px-4 sm:px-6 py-3 sm:py-4 rounded-[1.2rem] sm:rounded-[1.5rem] border border-slate-100 flex items-center gap-3 sm:gap-5 shrink-0 hover:border-red-300 transition-all shadow-sm">
+                <div>
+                   <p className="text-[10px] sm:text-xs font-black text-slate-800 truncate max-w-[100px]">{item.name}</p>
+                   <p className="text-[9px] sm:text-[10px] text-red-500 font-bold mt-0.5 sm:mt-1">Apenas {item.quantity} un</p>
+                </div>
+                <button 
+                  onClick={(e) => handleRestockClick(e, item)}
+                  className="bg-emerald-50 p-2 sm:p-2.5 rounded-xl text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm active:scale-90"
+                >
+                  <PackagePlus size={16} className="sm:w-[18px] sm:h-[18px]" />
+                </button>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* KPI Section - Estilo Card Elite e Grid Adaptativo */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
+           <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div className="p-3 sm:p-4 bg-emerald-50 text-emerald-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><TrendingUp size={20} className="sm:w-6 sm:h-6"/></div>
+              <span className="text-[8px] sm:text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">Bruto</span>
+           </div>
+           <p className="text-3xl sm:text-4xl font-black font-heading text-slate-900">{symbol} {stats.dailyRevenue.toLocaleString()}</p>
+           <div className="flex items-center gap-1.5 mt-3 sm:mt-4">
+              <ArrowUpRight size={12} className="text-emerald-500" />
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{stats.salesCount} Vendas Hoje</span>
+           </div>
+        </div>
+
+        <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
+           <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div className="p-3 sm:p-4 bg-indigo-50 text-indigo-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><Award size={20} className="sm:w-6 sm:h-6"/></div>
+              <span className="text-[8px] sm:text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">Líder</span>
+           </div>
+           <p className="text-base sm:text-xl font-black text-slate-800 truncate mb-1">{stats.topSalesData[0]?.name || "Nenhuma"}</p>
+           <p className="text-2xl sm:text-3xl font-black text-indigo-600">{stats.topSalesData[0]?.value || 0} <span className="text-xs sm:text-sm font-bold text-slate-300 tracking-normal font-sans">unidades</span></p>
+        </div>
+
+        <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-sm border border-slate-100 group hover:shadow-2xl hover:-translate-y-1 transition-all">
+           <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div className="p-3 sm:p-4 bg-purple-50 text-purple-600 rounded-[1.2rem] sm:rounded-[1.5rem]"><Star size={20} className="sm:w-6 sm:h-6"/></div>
+              <span className="text-[8px] sm:text-[9px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full">VIP</span>
+           </div>
+           <p className="text-base sm:text-xl font-black text-slate-800 truncate mb-1">{stats.topCustomer?.name || "Consumidor Final"}</p>
+           <p className="text-xl sm:text-2xl font-black text-purple-600">{symbol} {stats.topCustomer?.total.toLocaleString() || "0"}</p>
+        </div>
+
+        <div className="bg-slate-900 p-6 sm:p-8 rounded-[2.5rem] sm:rounded-[3rem] shadow-2xl group hover:bg-black transition-all">
+           <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div className="p-3 sm:p-4 bg-emerald-500 text-white rounded-[1.2rem] sm:rounded-[1.5rem] shadow-lg shadow-emerald-500/20"><Wallet size={20} className="sm:w-6 sm:h-6"/></div>
+              <span className="text-[8px] sm:text-[9px] font-black text-emerald-400 uppercase tracking-widest">Caixa Real</span>
+           </div>
+           <p className="text-3xl sm:text-4xl font-black font-heading text-white">{symbol} {stats.dailyNetBalance.toLocaleString()}</p>
+           <div className="flex items-center gap-1.5 mt-3 sm:mt-4 text-emerald-400">
+              <Calculator size={12} />
+              <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest">Saldo Líquido</span>
+           </div>
+        </div>
+      </div>
+
+      {/* KPI Line 2 - Extended Metrics Adaptada */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+        {[
+          { label: 'Margem', value: `${stats.dailyProfitPercent.toFixed(1)}%`, icon: BarChart3, color: 'text-indigo-500' },
+          { label: 'Tkt Médio', value: `${symbol}${stats.avgTicket.toFixed(0)}`, icon: Receipt, color: 'text-emerald-500' },
+          { label: 'Saídas', value: `${symbol}${stats.dailyOutflows.toLocaleString()}`, icon: ArrowDownRight, color: 'text-red-500' },
+          { label: 'Clientes', value: new Set(stats.todaysSales.map(s => s.customerId)).size, icon: Users, color: 'text-blue-500' }
+        ].map((kpi, i) => (
+          <div key={i} className="bg-white p-4 sm:p-6 rounded-[1.8rem] sm:rounded-[2rem] border border-slate-100 flex items-center gap-3 sm:gap-4 shadow-sm">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-50 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"><kpi.icon size={16} className={`${kpi.color} sm:w-[18px] sm:h-[18px]`} /></div>
+            <div className="min-w-0">
+              <p className="text-[8px] sm:text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">{kpi.label}</p>
+              <p className="text-sm sm:text-lg font-black text-slate-800 truncate">{kpi.value}</p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Operations Grid: Accounts & Appointments */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Contas Card */}
-        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
-          <div className="p-8 pb-4">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800 flex items-center">
-                    <Receipt size={18} className="text-slate-400 mr-2" /> Contas a Pagar
-                  </h3>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 block">Gestão de Passivo</span>
-                </div>
-                <button onClick={() => setShowExpenseForm(true)} className="bg-slate-100 hover:bg-slate-900 hover:text-white p-2.5 rounded-2xl transition-all shadow-sm">
-                  <Plus size={18} />
+      {/* Fluxo Dinâmico Restaurado - Mobile Height Optimized */}
+      <div className="bg-white p-6 sm:p-8 md:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[400px] sm:h-[500px] md:h-[650px]">
+        <div className="mb-6 sm:mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
+           <div className="space-y-2 w-full sm:w-auto">
+              <h3 className="text-xl sm:text-3xl font-black text-slate-900 font-heading">Performance</h3>
+              <div className="flex bg-slate-100 p-1 rounded-[1rem] sm:rounded-[1.2rem] w-full sm:w-fit">
+                <button onClick={() => setChartMetric('revenue')} className={`flex-1 sm:flex-none px-4 sm:px-5 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${chartMetric === 'revenue' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Faturação</button>
+                <button onClick={() => setChartMetric('quantity')} className={`flex-1 sm:flex-none px-4 sm:px-5 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${chartMetric === 'quantity' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Volume</button>
+              </div>
+           </div>
+           <div className="flex flex-wrap gap-2">
+              <button 
+                onClick={() => setActiveChartProducts([])}
+                className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.length === 0 ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}
+              >
+                Geral
+              </button>
+              {stats.productsInSales.map((p) => (
+                <button 
+                  key={p}
+                  onClick={() => setActiveChartProducts(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[10px] font-black uppercase transition-all ${activeChartProducts.includes(p) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                >
+                  {p.split(' ')[0]}
                 </button>
-              </div>
-              <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
-                {expenseStats.list.length > 0 ? expenseStats.list.map(exp => (
-                  <button 
-                    key={exp.id} 
-                    disabled={exp.wasPaidToday}
-                    onClick={() => { setSelectedExpense(exp); setShowPaymentSelector(true); }} 
-                    className={`w-full text-left group border border-slate-50 rounded-2xl p-4 transition-all flex justify-between items-center ${exp.wasPaidToday ? 'bg-emerald-50/50 cursor-default opacity-80' : 'bg-slate-50/50 hover:bg-white hover:border-slate-200 hover:shadow-md'}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-xl ${exp.wasPaidToday ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-50 text-indigo-500'}`}>
-                         {exp.wasPaidToday ? <CheckCircle size={18}/> : <Clock size={18}/>}
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-700 text-sm">{exp.name}</div>
-                        <div className={`text-[9px] font-black uppercase mt-1 px-2 py-0.5 rounded-full w-fit ${exp.statusColor}`}>{exp.statusLabel}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                       <div className="font-black text-slate-900 text-base">{symbol}{exp.amount.toFixed(0)}</div>
-                    </div>
-                  </button>
-                )) : <div className="flex flex-col items-center justify-center py-16 opacity-30"><CheckCircle size={40} /><p className="text-[10px] font-black mt-2 uppercase text-slate-400">Tudo liquidado</p></div>}
-              </div>
-          </div>
+              ))}
+           </div>
         </div>
+        <div className="flex-1 w-full mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={stats.hourlyFlowData}>
+              <defs>
+                <linearGradient id="colorDynamic" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={activeChartProducts.length > 0 ? "#6366f1" : "#10b981"} stopOpacity={0.25}/>
+                  <stop offset="95%" stopColor={activeChartProducts.length > 0 ? "#6366f1" : "#10b981"} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 9, fontWeight: '800', fill: '#94a3b8'}} dy={15} />
+              <YAxis hide />
+              <Tooltip 
+                contentStyle={{borderRadius: '1.5rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', fontWeight: 'bold', padding: '15px'}}
+                itemStyle={{fontSize: '11px', padding: '2px 0'}}
+              />
+              {activeChartProducts.length > 0 ? (
+                activeChartProducts.map((p, i) => (
+                  <Area key={p} name={p} type="monotone" dataKey={p} stroke={['#6366f1', '#ec4899', '#f59e0b', '#10b981'][i % 4]} strokeWidth={3} fillOpacity={1} fill="transparent" />
+                ))
+              ) : (
+                <Area name={chartMetric === 'revenue' ? "Receita Total" : "Volume Total"} type="monotone" dataKey="total" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorDynamic)" />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
-        {/* Agendamentos Card - Sincronizado TOTAL com AppointmentsPage */}
-        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
-          <div className="p-8 pb-4">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center">
-                        <Calendar size={18} className="text-indigo-400 mr-2" /> Agendamentos
-                    </h3>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 block">Fila de Hoje ({todaysAppointmentsList.length})</span>
-                </div>
-                <button onClick={() => setShowApptForm(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-[11px] font-black uppercase flex items-center shadow-lg active:scale-95 transition-all">
-                  <Plus size={14} className="mr-1.5" /> Novo
-                </button>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10">
+        {/* Tesouraria Adaptada */}
+        <div className="bg-white rounded-[2.5rem] sm:rounded-[4rem] border border-slate-50 shadow-sm overflow-hidden flex flex-col h-[500px] sm:h-[580px]">
+          <div className="p-6 sm:p-12 pb-4 sm:pb-6">
+            <div className="flex justify-between items-center mb-6 sm:mb-10">
+              <div>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-800 font-heading">Saídas</h3>
+                <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Gestão de Tesouraria</p>
               </div>
-              <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
-                {todaysAppointmentsList.length > 0 ? todaysAppointmentsList.map(appt => (
-                  <div key={appt.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all hover:border-indigo-200 group">
-                    <div className="flex items-start gap-4">
-                       {/* Bloco de Hora lateral roxo igual à página operacional */}
-                       <div className="bg-indigo-50 text-indigo-700 font-bold px-3 py-2 rounded-xl text-center min-w-[70px] border border-indigo-100 shrink-0">
-                          <span className="block text-lg">{appt.time}</span>
-                       </div>
-                       <div className="overflow-hidden">
-                          <h4 className="font-bold text-slate-800 text-base leading-none mb-1 truncate">{appt.customerName}</h4>
-                          <p className="text-xs text-slate-400 font-bold flex items-center truncate uppercase tracking-tighter">
-                             <Briefcase size={10} className="mr-1.5 opacity-50"/> {appt.serviceNames?.join(', ')}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1.5">
-                             <span className={`px-2 py-0.5 rounded-full text-[8px] font-black border uppercase ${appt.status === 'scheduled' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'}`}>{appt.status}</span>
-                             <span className="text-[9px] font-black text-slate-300">MT {appt.totalAmount?.toFixed(0)}</span>
-                          </div>
-                       </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                        <button onClick={() => { onUpdateAppointmentStatus?.(appt.id, 'confirmed'); if(appt.customerPhone) window.open(`https://wa.me/258${appt.customerPhone.replace(/\s/g,'')}?text=Confirmo o seu agendamento para hoje às ${appt.time}!`, '_blank'); }} className="p-1.5 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors"><CheckCircle size={18}/></button>
-                        <button onClick={() => { setAppointmentToComplete(appt); setShowApptPaymentModal(true); }} className="p-1.5 bg-slate-900 text-white rounded-xl hover:bg-black transition-colors"><Receipt size={18}/></button>
+              <button onClick={() => setShowExpenseForm(true)} className="bg-red-500 text-white p-3 sm:p-5 rounded-[1.2rem] sm:rounded-[2rem] hover:bg-red-600 transition-all shadow-2xl active:scale-95"><Plus size={20} className="sm:w-6 sm:h-6" /></button>
+            </div>
+            <div className="space-y-3 sm:space-y-4 overflow-y-auto max-h-[350px] sm:max-h-[380px] pr-2 custom-scrollbar">
+              {expenses.length > 0 ? expenses.map(exp => (
+                <div 
+                  key={exp.id} 
+                  onClick={() => { setSelectedExpense(exp); setShowExpenseActionModal(true); }} 
+                  className={`w-full p-5 sm:p-7 rounded-[1.8rem] sm:rounded-[2.5rem] border transition-all flex justify-between items-center cursor-pointer ${exp.isPaid ? 'bg-slate-50 border-transparent opacity-60' : 'bg-white border-slate-100 hover:border-red-200 hover:shadow-lg'}`}
+                >
+                  <div className="flex items-center gap-4 sm:gap-6">
+                    <div className={`p-3 sm:p-4 rounded-[1rem] sm:rounded-2xl transition-all ${exp.isPaid ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-300'}`}>{exp.isPaid ? <CheckCircle size={18} className="sm:w-[22px] sm:h-[22px]"/> : <Clock size={18} className="sm:w-[22px] sm:h-[22px]"/>}</div>
+                    <div className="min-w-0">
+                      <div className="font-black text-slate-800 text-xs sm:text-base truncate max-w-[120px] sm:max-w-none">{exp.name}</div>
+                      <div className="text-[8px] sm:text-[10px] font-black uppercase text-slate-400 mt-1 tracking-widest">{exp.type === 'fixed' ? 'Fixa' : 'Pontual'}</div>
                     </div>
                   </div>
-                )) : <div className="flex flex-col items-center justify-center py-16 opacity-30"><Clock size={40} /><p className="text-[10px] font-black mt-2 uppercase text-slate-400">Vazio para hoje</p></div>}
-              </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics: Billing Flow & Rankings */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Dynamic Billing Flow Chart */}
-        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 lg:col-span-2 min-h-[480px] flex flex-col">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-             <div>
-                <h3 className="text-xl font-black text-slate-800 flex items-center font-heading tracking-tight"><TrendingUp className="mr-2 text-emerald-500" size={24} />Fluxo de Faturação</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Comparativo de desempenho por produto</p>
-             </div>
-             <div className="flex flex-wrap gap-2">
-                <button 
-                  onClick={() => setSelectedProductsForChart([])}
-                  className={`px-3 py-1.5 rounded-full text-[10px] font-black transition-all border ${selectedProductsForChart.length === 0 ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                >Global</button>
-                {stats.productsInSales.map((p, i) => (
-                  <button 
-                    key={p}
-                    onClick={() => toggleProductInChart(p)}
-                    className={`px-3 py-1.5 rounded-full text-[10px] font-black transition-all border ${selectedProductsForChart.includes(p) ? 'border-slate-800 bg-white text-slate-800 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-                    style={selectedProductsForChart.includes(p) ? { borderColor: CHART_COLORS[i % CHART_COLORS.length], color: CHART_COLORS[i % CHART_COLORS.length] } : {}}
-                  >{p}</button>
-                ))}
-             </div>
-          </div>
-
-          <div className="flex-1 w-full h-[320px]">
-            {stats.dailyRevenue > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.hourlyFlowData}>
-                  <defs>
-                    <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#1e293b" stopOpacity={0.1}/><stop offset="95%" stopColor="#1e293b" stopOpacity={0}/></linearGradient>
-                    {stats.productsInSales.map((p, i) => (
-                      <linearGradient key={`grad-${p}`} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.15}/><stop offset="95%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0}/>
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 10, fontBold: 700, fill: '#94a3b8'}} dy={10} />
-                  <YAxis hide />
-                  <Tooltip cursor={{ stroke: '#f1f5f9', strokeWidth: 2 }} contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'}} />
-                  <Legend iconType="circle" wrapperStyle={{fontSize: '10px', fontWeight: 'black', textTransform: 'uppercase', paddingTop: '20px'}} />
-                  {selectedProductsForChart.length === 0 ? (
-                      <Area name="Total Bruto" type="monotone" dataKey="total" stroke="#1e293b" strokeWidth={4} fillOpacity={1} fill="url(#colorTotal)" animationDuration={1200} />
-                  ) : (
-                      selectedProductsForChart.map((p) => {
-                          const idx = stats.productsInSales.indexOf(p);
-                          return <Area key={p} name={p} type="monotone" dataKey={p} stroke={CHART_COLORS[idx % CHART_COLORS.length]} strokeWidth={3} fillOpacity={1} fill={`url(#grad-${idx})`} animationDuration={800} />
-                      })
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : <div className="h-full flex flex-col items-center justify-center text-slate-300 font-bold border-2 border-dashed border-slate-50 rounded-[2rem]"><Activity size={48} className="mb-3 opacity-20" /><p className="uppercase tracking-widest text-xs">Aguardando dados</p></div>}
+                  <div className="text-right">
+                    <div className="font-black text-slate-900 text-base sm:text-xl">{symbol}{exp.amount.toLocaleString()}</div>
+                    {exp.paymentMethod && <div className="text-[8px] sm:text-[9px] font-black text-emerald-600 uppercase flex items-center justify-end mt-1 truncate">{exp.paymentMethod}</div>}
+                  </div>
+                </div>
+              )) : <div className="text-center py-20 opacity-20"><Receipt size={60} className="mx-auto mb-4"/><p className="text-[10px] font-black uppercase tracking-widest">Sem custos</p></div>}
+            </div>
           </div>
         </div>
 
-        {/* Premium Performance Card (Ranking & Highlight) */}
-        <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl text-white min-h-[480px] flex flex-col">
-           <div className="mb-8">
-              <h3 className="text-xl font-black font-heading tracking-tight flex items-center">
-                 <Award className="mr-2 text-amber-400" size={24} /> Performance
-              </h3>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Destaques do Dia</p>
-           </div>
-           
-           <div className="flex-1 space-y-6">
-              <div className="space-y-4">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2">Top Vendidos</p>
-                 {stats.topSalesData.slice(0, 3).map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between group">
-                       <div className="flex items-center gap-4">
-                          <span className="text-xs font-black text-slate-600">0{idx+1}</span>
-                          <span className="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">{item.name}</span>
-                       </div>
-                       <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-lg font-black text-xs">{item.value} un</span>
-                    </div>
-                 ))}
-                 {stats.topSalesData.length === 0 && <p className="text-xs text-slate-600 italic">Sem dados</p>}
-              </div>
-
-              <div className="mt-auto pt-6 border-t border-white/5">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Cliente Premium</p>
-                 {stats.clientOfTheDay ? (
-                    <div className="bg-white/5 hover:bg-white/10 p-5 rounded-[2rem] border border-white/5 transition-all group">
-                       <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-gradient-to-br from-amber-300 to-amber-500 rounded-2xl flex items-center justify-center text-slate-900 shadow-lg shadow-amber-500/20 group-hover:scale-110 transition-transform">
-                             <Users size={24} />
-                          </div>
-                          <div>
-                             <p className="text-sm font-black text-white">{stats.clientOfTheDay.name}</p>
-                             <p className="text-lg font-black text-amber-400 mt-0.5">{symbol}{stats.clientOfTheDay.value.toFixed(0)}</p>
-                          </div>
-                       </div>
-                    </div>
-                 ) : <div className="text-center py-8 text-slate-600 font-bold uppercase text-[10px] tracking-widest">A aguardar vendas</div>}
-              </div>
-           </div>
-        </div>
-      </div>
-
-      {/* History Tabs Card */}
-      <div className="bg-white p-6 rounded-[3rem] shadow-sm border border-slate-100 flex flex-col h-[480px]">
-          <div className="flex items-center space-x-1 mb-6 bg-slate-100 p-1.5 rounded-2xl w-fit mx-auto">
-             <button onClick={() => setRightPanelTab('sales')} className={`px-6 py-2.5 text-[10px] font-black uppercase transition-all rounded-xl ${rightPanelTab === 'sales' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Faturação</button>
-             <button onClick={() => setRightPanelTab('outflows')} className={`px-6 py-2.5 text-[10px] font-black uppercase transition-all rounded-xl ${rightPanelTab === 'outflows' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-red-500'}`}>Saídas</button>
-             <button onClick={() => setRightPanelTab('audit')} className={`px-6 py-2.5 text-[10px] font-black uppercase transition-all rounded-xl ${rightPanelTab === 'audit' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-indigo-500'}`}>Auditoria</button>
+        {/* Auditoria com Drill-Down Adaptada */}
+        <div className="bg-white p-6 sm:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[500px] sm:h-[580px]">
+          <div className="flex items-center space-x-2 sm:space-x-3 mb-6 sm:mb-10 bg-slate-100 p-1.5 rounded-[1.8rem] sm:rounded-[2.2rem] w-full sm:w-fit mx-auto shadow-inner">
+             <button onClick={() => setRightPanelTab('sales')} className={`flex-1 sm:flex-none px-6 sm:px-12 py-2.5 sm:py-3.5 text-[9px] sm:text-[11px] font-black uppercase transition-all rounded-[1.5rem] sm:rounded-[1.8rem] ${rightPanelTab === 'sales' ? 'bg-white text-slate-800 shadow-lg' : 'text-slate-400'}`}>Vendas</button>
+             <button onClick={() => setRightPanelTab('audit')} className={`flex-1 sm:flex-none px-6 sm:px-12 py-2.5 sm:py-3.5 text-[9px] sm:text-[11px] font-black uppercase transition-all rounded-[1.5rem] sm:rounded-[1.8rem] ${rightPanelTab === 'audit' ? 'bg-white text-indigo-600 shadow-lg' : 'text-slate-400'}`}>Logs</button>
           </div>
           
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-            {rightPanelTab === 'sales' && stats.todaysSales.map((tx) => (
-              <div key={tx.id} onClick={() => setDetailedSale(tx)} className="flex justify-between items-center p-4 rounded-2xl border border-slate-50 hover:border-emerald-200 transition-colors cursor-pointer group bg-slate-50/30 hover:bg-white">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-100 transition-all"><ArrowUpRight size={18} /></div>
-                  <div><p className="font-bold text-slate-800 text-xs line-clamp-1">{tx.itemName}</p><div className="flex items-center text-[9px] font-black text-slate-400 uppercase tracking-tighter">{getMethodIcon(tx.paymentMethod)} <span className="ml-1.5">{tx.paymentMethod}</span></div></div>
+          <div className="flex-1 overflow-y-auto space-y-3 sm:space-y-4 pr-1 custom-scrollbar">
+            {rightPanelTab === 'sales' ? (
+              stats.todaysSales.length > 0 ? stats.todaysSales.map((tx) => (
+                <div key={tx.id} onClick={() => setDetailModal({type: 'sale', data: tx})} className="flex justify-between items-center p-4 sm:p-7 rounded-[1.8rem] sm:rounded-[2.8rem] border border-slate-50 bg-slate-50/30 hover:bg-white hover:shadow-lg transition-all cursor-pointer">
+                  <div className="flex items-center gap-4 sm:gap-6">
+                    <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-[1.1rem] sm:rounded-2xl bg-white shadow-sm flex items-center justify-center text-emerald-500 shrink-0"><ShoppingBag size={18} className="sm:w-6 sm:h-6" /></div>
+                    <div className="min-w-0">
+                      <p className="font-black text-slate-800 text-[11px] sm:text-sm truncate max-w-[100px] sm:max-w-[150px]">{tx.itemName}</p>
+                      <div className="flex items-center text-[8px] sm:text-[10px] font-black text-slate-400 uppercase mt-1 truncate">
+                        {tx.paymentMethod} • <span className="ml-1 text-slate-500">{tx.operatorName.split(' ')[0]}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-black text-slate-900 text-sm sm:text-lg">{symbol}{(tx.totalRevenue * rate).toLocaleString()}</p>
+                    <p className="text-[8px] sm:text-[10px] text-slate-300 font-black uppercase tracking-tighter">{formatDateTime(tx.date).time}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-black text-slate-900 text-sm">{symbol}{(tx.totalRevenue * rate).toFixed(0)}</p>
-                  <p className="text-[8px] text-slate-300 font-bold uppercase">Ver Detalhes</p>
+              )) : <div className="py-20 text-center opacity-20 font-black uppercase text-[10px] tracking-widest">Sem vendas</div>
+            ) : (
+              logs.slice(0, 30).map((log) => (
+                <div key={log.id} onClick={() => setDetailModal({type: 'log', data: log})} className="p-5 sm:p-7 rounded-[1.8rem] sm:rounded-[2.8rem] bg-slate-50/30 border border-slate-100 text-[9px] sm:text-[11px] hover:bg-white transition-all cursor-pointer">
+                   <div className="flex justify-between mb-3 sm:mb-4">
+                      <span className={`font-black uppercase tracking-widest px-2 sm:px-3.5 py-1 rounded-full text-[8px] sm:text-[9px] ${log.action === 'SALE' ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>{log.action}</span>
+                      <span className="text-slate-400 font-black">{formatDateTime(log.timestamp).full}</span>
+                   </div>
+                   <p className="text-slate-600 font-bold leading-relaxed truncate">{log.details}</p>
                 </div>
-              </div>
-            ))}
-            
-            {rightPanelTab === 'outflows' && stats.todaysPaidExpenses.map((expense) => (
-              <div key={expense.id} onClick={() => setDetailedExpense(expense)} className="flex justify-between items-center p-4 rounded-2xl border border-slate-50 hover:border-red-200 transition-colors cursor-pointer bg-slate-50/30 hover:bg-white group">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600 transition-all group-hover:bg-red-100"><ArrowDownCircle size={18} /></div>
-                  <div><p className="font-bold text-slate-800 text-xs line-clamp-1">{expense.name}</p><div className="flex items-center text-[9px] font-black text-slate-400 uppercase tracking-tighter">{getMethodIcon(expense.paymentMethod || 'cash')} <span className="ml-1.5">{expense.paymentMethod || 'cash'}</span></div></div>
-                </div>
-                <div className="text-right">
-                  <p className="font-black text-red-600 text-sm">{symbol}{(expense.amount * rate).toFixed(0)}</p>
-                  <p className="text-[8px] text-slate-300 font-bold uppercase">Ver Detalhes</p>
-                </div>
-              </div>
-            ))}
-
-            {rightPanelTab === 'audit' && logs.slice(0, 30).map((log) => (
-              <div key={log.id} onClick={() => setDetailedLog(log)} className="p-4 rounded-2xl bg-slate-50/30 border border-slate-100 text-[10px] group hover:bg-white hover:border-indigo-200 transition-all cursor-pointer">
-                 <div className="flex justify-between mb-1.5">
-                    <span className={`font-black uppercase tracking-widest ${log.action === 'SALE' ? 'text-emerald-500' : log.action === 'EXPENSE' ? 'text-red-500' : 'text-indigo-500'}`}>{log.action}</span>
-                    <span className="text-slate-400 font-bold">{formatDateTime(log.timestamp).time}</span>
-                 </div>
-                 <p className="text-slate-600 font-semibold leading-tight line-clamp-1">{log.details}</p>
-                 <div className="mt-2 text-[8px] text-slate-400 uppercase font-black opacity-50 flex justify-between items-center">
-                    <span>Op: {log.operatorName}</span>
-                    <span className="group-hover:text-indigo-500">Detalhes →</span>
-                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
+        </div>
       </div>
 
-      {/* --- DETAIL MODALS (RECIBOS/VOUCHERS COM DATA E HORA COMPLETA) --- */}
-      
-      {/* Detalhe de Venda (Recibo Digital com DATA E HORA) */}
-      {detailedSale && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out] border-4 border-emerald-500/20">
-            <div className="p-8 text-center bg-slate-50 border-b border-dashed border-slate-200 relative">
-               <div className="absolute -left-3 -bottom-3 w-6 h-6 bg-slate-900/80 rounded-full"></div>
-               <div className="absolute -right-3 -bottom-3 w-6 h-6 bg-slate-900/80 rounded-full"></div>
-               <Receipt className="mx-auto mb-4 text-emerald-600" size={48} />
-               <h3 className="text-xl font-black font-heading text-slate-800">Recibo de Venda</h3>
-               <p className="text-[10px] font-black text-slate-400 uppercase mt-1 tracking-widest">ID: #{detailedSale.transactionId.slice(0, 12)}</p>
-            </div>
-            <div className="p-8 space-y-6">
-               <div className="space-y-4">
-                  <div className="flex justify-between items-end border-b border-slate-100 pb-4">
-                    <div className="flex items-center gap-3">
-                       <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-xs">{detailedSale.quantity}x</div>
-                       <div><p className="font-black text-slate-800 text-sm leading-tight">{detailedSale.itemName}</p><p className="text-[10px] font-bold text-slate-400">{detailedSale.itemSize}{detailedSale.itemUnit}</p></div>
-                    </div>
-                    <p className="font-black text-slate-900 text-lg">{symbol}{(detailedSale.totalRevenue * rate).toFixed(0)}</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
-                       <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Data e Hora</p>
-                          <div className="flex items-center gap-2 font-black text-slate-700 text-xs">
-                             <Clock size={12} className="text-emerald-500"/> {formatDateTime(detailedSale.date).full}
-                          </div>
-                       </div>
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
-                       <div>
-                          <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Pagamento</p>
-                          <div className="flex items-center gap-2 font-black text-slate-700 text-xs uppercase">
-                             {getMethodIcon(detailedSale.paymentMethod)} {detailedSale.paymentMethod}
-                          </div>
-                       </div>
-                    </div>
-                  </div>
-                  <div className="bg-emerald-50 p-4 rounded-3xl border border-emerald-100 flex items-center justify-between">
-                     <div><p className="text-[9px] font-black text-emerald-600 uppercase mb-0.5">Operador Responsável</p><p className="font-black text-slate-800 text-xs">{detailedSale.operatorName}</p></div>
-                     <ShieldCheck className="text-emerald-500" size={24} />
-                  </div>
+      {/* Recibo Auditoria Premium - Mobile Optimized */}
+      {detailModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+            <div className="p-8 sm:p-12 text-center bg-slate-50/50 relative border-b border-slate-100">
+               <button onClick={() => setDetailModal(null)} className="absolute top-6 sm:top-10 right-6 sm:right-10 p-2 bg-white rounded-full shadow-md text-slate-400 hover:text-slate-900 transition-all active:scale-90"><X size={18}/></button>
+               <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-[1.5rem] sm:rounded-[2.5rem] shadow-2xl flex items-center justify-center mx-auto mb-6 sm:mb-8 border border-slate-50 shrink-0">
+                  {detailModal.type === 'sale' ? <ShoppingBag className="text-emerald-500" size={30} /> : <Info className="text-indigo-500" size={30} />}
                </div>
-               <button onClick={() => setDetailedSale(null)} className="w-full py-5 bg-slate-900 text-white font-black rounded-3xl hover:bg-black transition-all uppercase tracking-widest text-xs">Fechar Recibo</button>
+               <h3 className="text-2xl sm:text-3xl font-black text-slate-900 font-heading">Registo Oficial</h3>
+               <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2 sm:mt-3">Audit Log ID: {detailModal.data.id.slice(0,5)}</p>
+            </div>
+            
+            <div className="p-8 sm:p-12 space-y-8 sm:space-y-10">
+               <div className="space-y-4 sm:space-y-6">
+                  {detailModal.type === 'sale' ? (
+                     <>
+                        <div className="flex justify-between items-center text-xs sm:text-sm font-bold"><span className="text-slate-400 uppercase text-[9px] sm:text-[10px]">Item</span><span className="text-slate-900 text-right truncate max-w-[150px]">{detailModal.data.itemName}</span></div>
+                        <div className="flex justify-between items-center text-xs sm:text-sm font-bold"><span className="text-slate-400 uppercase text-[9px] sm:text-[10px]">Total</span><span className="text-emerald-600 text-2xl sm:text-3xl font-black">{symbol} {(detailModal.data.totalRevenue * rate).toLocaleString()}</span></div>
+                        <div className="pt-6 sm:pt-8 border-t border-slate-100 space-y-3 sm:space-y-4">
+                          <div className="flex justify-between items-center text-[10px] sm:text-xs font-bold"><span className="text-slate-400 uppercase">Data</span><span className="text-slate-800">{formatDateTime(detailModal.data.date).full}</span></div>
+                          <div className="flex justify-between items-center text-[10px] sm:text-xs font-bold"><span className="text-slate-400 uppercase">Operador</span><span className="text-slate-800">{detailModal.data.operatorName}</span></div>
+                        </div>
+                     </>
+                  ) : (
+                     <>
+                        <p className="bg-slate-50 p-6 sm:p-8 rounded-[1.8rem] sm:rounded-[2.5rem] text-slate-700 font-bold text-xs sm:text-sm leading-relaxed border border-slate-100 shadow-inner">{detailModal.data.details}</p>
+                        <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6">
+                          <div className="flex justify-between items-center text-[10px] sm:text-xs font-bold"><span className="text-slate-400 uppercase">Ocorrência</span><span className="text-slate-800">{formatDateTime(detailModal.data.timestamp).full}</span></div>
+                          <div className="flex justify-between items-center text-[10px] sm:text-xs font-bold"><span className="text-slate-400 uppercase">Responsável</span><span className="text-slate-800">{detailModal.data.operatorName}</span></div>
+                        </div>
+                     </>
+                  )}
+               </div>
+               <button onClick={() => setDetailModal(null)} className="w-full py-4 sm:py-6 bg-slate-900 text-white font-black rounded-[1.5rem] sm:rounded-[2rem] hover:bg-black uppercase text-[10px] sm:text-[11px] tracking-[0.4em] transition-all shadow-2xl active:scale-95">Fechar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Detalhe de Despesa (Voucher de Saída com DATA E HORA COMPLETA) */}
-      {detailedExpense && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out] border-4 border-red-500/20">
-            <div className="p-8 text-center bg-red-50 border-b border-dashed border-red-100">
-               <AlertOctagon className="mx-auto mb-4 text-red-600" size={48} />
-               <h3 className="text-xl font-black font-heading text-slate-800">Comprovativo de Saída</h3>
-               <p className="text-[10px] font-black text-red-400 uppercase mt-1 tracking-widest">
-                  Transação: {formatDateTime(detailedExpense.lastPaidDate!).full}
-               </p>
-            </div>
-            <div className="p-8 space-y-6">
-               <div className="space-y-4">
-                  <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase mb-1 tracking-widest">Valor Retirado</p>
-                    <p className="text-4xl font-black text-slate-900">{symbol} {(detailedExpense.amount * rate).toFixed(0)}</p>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center px-2"><span className="text-[10px] font-black text-slate-400 uppercase">Descrição</span><span className="font-bold text-slate-800 text-xs">{detailedExpense.name}</span></div>
-                    <div className="flex justify-between items-center px-2"><span className="text-[10px] font-black text-slate-400 uppercase">Categoria</span><span className="bg-red-100 text-red-600 px-2 py-0.5 rounded-lg font-black text-[10px] uppercase">{detailedExpense.type === 'fixed' ? 'Custo Fixo' : 'Custo Variável'}</span></div>
-                    <div className="flex justify-between items-center px-2"><span className="text-[10px] font-black text-slate-400 uppercase">Meio Usado</span><span className="font-bold text-slate-800 text-xs flex items-center gap-1">{getMethodIcon(detailedExpense.paymentMethod || 'cash')} {detailedExpense.paymentMethod?.toUpperCase()}</span></div>
-                    <div className="flex justify-between items-center px-2"><span className="text-[10px] font-black text-slate-400 uppercase">Autorizado por</span><span className="font-bold text-slate-800 text-xs">{detailedExpense.operatorName || 'Admin'}</span></div>
-                  </div>
-               </div>
-               <button onClick={() => setDetailedExpense(null)} className="w-full py-5 bg-slate-900 text-white font-black rounded-3xl hover:bg-black transition-all uppercase tracking-widest text-xs">Voltar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Detalhe de Log (Auditoria com DATA E HORA COMPLETA) */}
-      {detailedLog && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out] border-4 border-indigo-500/20">
-            <div className="p-8 text-center bg-indigo-50 border-b border-dashed border-indigo-100">
-               <ShieldCheck className="mx-auto mb-4 text-indigo-600" size={48} />
-               <h3 className="text-xl font-black font-heading text-slate-800">Registo de Auditoria</h3>
-               <p className="text-[10px] font-black text-indigo-400 uppercase mt-1 tracking-widest">Segurança do Sistema</p>
-            </div>
-            <div className="p-8 space-y-6">
-               <div className="space-y-4">
-                  <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                       <span className={`px-2 py-0.5 rounded-lg font-black text-[9px] uppercase ${detailedLog.action === 'SALE' ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-100 text-indigo-600'}`}>{detailedLog.action}</span>
-                       <span className="text-[10px] font-bold text-slate-400">{formatDateTime(detailedLog.timestamp).full}</span>
-                    </div>
-                    <p className="text-sm font-bold text-slate-700 leading-relaxed italic">"{detailedLog.details}"</p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
-                     <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Autor do Evento</p>
-                     <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white"><User size={14}/></div>
-                        <p className="font-black text-slate-800 text-xs">{detailedLog.operatorName}</p>
-                     </div>
-                  </div>
-               </div>
-               <button onClick={() => setDetailedLog(null)} className="w-full py-5 bg-slate-900 text-white font-black rounded-3xl hover:bg-black transition-all uppercase tracking-widest text-xs">Concluir Verificação</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- FORM MODALS --- */}
-      
-      {/* Appointment Pay Modal */}
-      {showApptPaymentModal && appointmentToComplete && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-xs rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-               <div className="p-10 bg-indigo-600 text-white text-center">
-                  <h3 className="font-black text-xl font-heading">Cobrança</h3>
-                  <p className="text-indigo-100 text-[10px] mt-2 uppercase font-black tracking-widest">{appointmentToComplete.customerName}</p>
-                  <p className="text-3xl font-black mt-6">{symbol} {appointmentToComplete.totalAmount?.toFixed(0)}</p>
-               </div>
-               <div className="p-8 grid grid-cols-2 gap-4 bg-slate-50">
-                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
-                    <button key={m} onClick={() => { onCompleteAppointment?.(appointmentToComplete.id, m as PaymentMethod); setShowApptPaymentModal(false); }} className="flex flex-col items-center p-6 bg-white hover:bg-emerald-50 rounded-[2rem] border border-white hover:border-emerald-200 transition-all shadow-sm active:scale-95 group">
-                       <div className="group-hover:scale-125 transition-transform mb-3">{getMethodIcon(m)}</div>
-                       <span className="text-[10px] font-black uppercase text-slate-600 tracking-tighter">{m}</span>
-                    </button>
-                  ))}
-               </div>
-               <button onClick={() => setShowApptPaymentModal(false)} className="w-full py-6 text-slate-400 font-black text-xs uppercase bg-white border-t border-slate-50">Cancelar</button>
-            </div>
-        </div>
-      )}
-
-      {/* Expense Form Modal - Com campo de vencimento para Rendas */}
+      {/* Formulário Saída Delicado - Adaptado */}
       {showExpenseForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-              <div className="p-10 bg-slate-900 text-white flex justify-between items-center">
-                 <div className="flex items-center"><AlertOctagon size={24} className="mr-4 text-red-500" /><h3 className="font-black text-xl font-heading tracking-tight">Registar Saída</h3></div>
-                 <button onClick={() => setShowExpenseForm(false)} className="hover:bg-slate-800 p-2.5 rounded-2xl transition-colors"><X size={24}/></button>
+         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
+            <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+               <div className="p-8 sm:p-12 bg-red-600 text-white flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-4 sm:gap-5"><ArrowDownCircle size={28} className="sm:w-8 sm:h-8" /> <h3 className="font-black text-2xl sm:text-3xl font-heading tracking-tight">Nova Saída</h3></div>
+                  <button onClick={() => setShowExpenseForm(false)} className="bg-white/20 p-2 sm:p-2.5 rounded-full hover:bg-white/40 transition-all"><X size={20}/></button>
+               </div>
+               <form onSubmit={(e) => {
+                 e.preventDefault();
+                 const fd = new FormData(e.currentTarget);
+                 const type = fd.get('type') as 'fixed' | 'variable';
+                 const newExpense: Expense = {
+                    id: generateID(),
+                    name: fd.get('name') as string,
+                    amount: parseFloat(fd.get('amount') as string),
+                    type,
+                    nextDueDate: fd.get('dueDate') as string || new Date().toISOString(),
+                    isPaid: type === 'variable',
+                    lastPaidDate: type === 'variable' ? new Date().toISOString() : undefined,
+                    paymentMethod: type === 'variable' ? fd.get('method') as PaymentMethod : undefined,
+                    operatorName: currentOperator
+                 };
+                 onSaveExpense?.(newExpense);
+                 setShowExpenseForm(false);
+               }} className="p-8 sm:p-12 space-y-8 sm:space-y-10 overflow-y-auto max-h-[70vh]">
+                  <div className="space-y-4 sm:space-y-5">
+                    <input required name="name" placeholder="Descrição do Gasto" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-transparent focus:border-red-100 shadow-inner transition-all text-xs sm:text-sm" />
+                    <input required name="amount" type="number" placeholder="0.00 MT" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-black text-2xl sm:text-4xl outline-none border border-transparent focus:border-red-100 shadow-inner transition-all text-red-600 text-center" />
+                  </div>
+                  
+                  <div className="space-y-3 sm:space-y-4">
+                    <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 block">Tipo de Movimento</label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-[1.4rem] sm:rounded-[1.8rem] shadow-inner">
+                       <button type="button" onClick={() => setSelectedExpense(prev => ({...prev!, type: 'variable'}))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${selectedExpense?.type !== 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Pontual</button>
+                       <button type="button" onClick={() => setSelectedExpense(prev => ({...prev!, type: 'fixed'}))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${selectedExpense?.type === 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Fixa</button>
+                       <input type="hidden" name="type" value={selectedExpense?.type || 'variable'} />
+                    </div>
+                  </div>
+
+                  <div className="animate-[slideIn_0.3s_ease-out]">
+                    {selectedExpense?.type === 'fixed' ? (
+                       <div className="space-y-3 sm:space-y-4">
+                          <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 block">Vencimento</label>
+                          <input required type="date" name="dueDate" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-red-100 shadow-inner text-xs sm:text-sm" />
+                       </div>
+                    ) : (
+                       <div className="space-y-3 sm:space-y-4">
+                          <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 block">Meio de Pagamento</label>
+                          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                             {['cash', 'mpesa', 'emola', 'card'].map(m => (
+                                <label key={m} className="flex items-center justify-center p-3 sm:p-5 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all">
+                                   <input required type="radio" name="method" value={m} className="hidden peer" />
+                                   <div className="flex flex-col items-center peer-checked:text-red-600 peer-checked:scale-110 transition-all">
+                                      {getMethodIcon(m)} <span className="text-[8px] sm:text-[9px] font-black uppercase mt-2 tracking-widest">{m}</span>
+                                   </div>
+                                </label>
+                             ))}
+                          </div>
+                       </div>
+                    )}
+                  </div>
+
+                  <button type="submit" className="w-full py-4 sm:py-6 bg-red-600 text-white font-black rounded-[1.5rem] sm:rounded-[2.5rem] hover:bg-red-700 shadow-2xl transition-all uppercase text-[10px] sm:text-[11px] tracking-[0.4em] active:scale-95">Confirmar</button>
+               </form>
+            </div>
+         </div>
+      )}
+
+      {/* Reposição de Stock Direta - Mobile optimized size */}
+      {showRestockModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6">
+           <div className="bg-white p-8 sm:p-12 rounded-[3rem] sm:rounded-[4.5rem] shadow-2xl w-full max-w-xs text-center animate-[scaleIn_0.3s_ease-out]">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 bg-emerald-50 text-emerald-600 rounded-[1.5rem] sm:rounded-[2.8rem] flex items-center justify-center mx-auto mb-6 sm:mb-10 shadow-inner"><PackagePlus size={36} className="sm:w-12 sm:h-12"/></div>
+              <h3 className="text-xl sm:text-2xl font-black text-slate-900 font-heading truncate">{showRestockModal.name}</h3>
+              <p className="text-slate-400 text-[8px] sm:text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] mt-2 sm:mt-3">Reposição Rápida</p>
+              
+              <div className="my-8 sm:my-12">
+                 <div className="flex items-center justify-center gap-5 sm:gap-8">
+                    {/* Fixed: Remove className from Minus as it's not in the defined props type */}
+                    <button onClick={() => setRestockQty(Math.max(1, restockQty-1))} className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-inner active:scale-90"><Minus size={18} /></button>
+                    <span className="text-4xl sm:text-6xl font-black text-slate-900 w-16 sm:w-24">{restockQty}</span>
+                    <button onClick={() => setRestockQty(restockQty+1)} className="w-10 h-10 sm:w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-inner active:scale-90"><Plus size={18} className="sm:w-5 sm:h-5"/></button>
+                 </div>
               </div>
-              <form onSubmit={handleExpenseSubmit} className="p-10 space-y-6 bg-white">
-                 <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5 px-1">Descrição</label>
-                    <input required className="w-full p-5 border-none rounded-2xl bg-slate-50 text-slate-900 shadow-inner font-bold text-sm outline-none" value={expenseFormData.name} onChange={e => setExpenseFormData({...expenseFormData, name: e.target.value})} placeholder="Ex: Renda Mensal" />
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5 px-1">Valor ({symbol})</label>
-                       <input type="number" required className="w-full p-5 border-none rounded-2xl bg-slate-50 text-slate-900 shadow-inner font-black text-lg outline-none" value={expenseFormData.amount} onChange={e => setExpenseFormData({...expenseFormData, amount: e.target.value})} />
-                    </div>
-                    <div>
-                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5 px-1">Tipo</label>
-                       <select className="w-full p-5 border-none rounded-2xl bg-slate-50 text-slate-900 shadow-inner font-bold text-sm outline-none" value={expenseFormData.type} onChange={e => setExpenseFormData({...expenseFormData, type: e.target.value as any})}>
-                          <option value="fixed">Mensal (Renda)</option>
-                          <option value="variable">Pontual (Variável)</option>
-                       </select>
-                    </div>
-                 </div>
-                 {expenseFormData.type === 'fixed' && (
-                    <div className="animate-[slideIn_0.2s]">
-                       <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2.5 px-1 flex items-center"><Clock size={12} className="mr-1"/> Dia de Vencimento</label>
-                       <input type="number" min="1" max="31" required className="w-full p-5 border-none rounded-2xl bg-emerald-50 text-emerald-900 shadow-inner font-black text-lg outline-none" value={expenseFormData.paymentDay} onChange={e => setExpenseFormData({...expenseFormData, paymentDay: e.target.value})} />
-                       <p className="text-[9px] text-emerald-600/60 font-bold mt-2 px-1 uppercase tracking-tighter">O sistema alertará automaticamente na proximidade deste dia.</p>
-                    </div>
-                 )}
-                 <button type="submit" className="w-full py-6 bg-slate-900 text-white font-black rounded-3xl hover:bg-black shadow-2xl transition-all uppercase tracking-widest text-xs">Adicionar ao Fluxo</button>
-              </form>
+
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                 <button onClick={() => setShowRestockModal(null)} className="py-4 sm:py-6 bg-slate-50 text-slate-400 font-black rounded-[1.2rem] sm:rounded-[2rem] text-[9px] sm:text-[10px] uppercase tracking-widest">Voltar</button>
+                 <button onClick={confirmRestock} className="py-4 sm:py-6 bg-emerald-600 text-white font-black rounded-[1.2rem] sm:rounded-[2rem] text-[9px] sm:text-[10px] uppercase tracking-widest shadow-xl active:scale-95">Repor</button>
+              </div>
            </div>
         </div>
       )}
 
-      {/* Appointment Form Modal (Professional Sincronizado) */}
-      {showApptForm && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s_ease-out] flex flex-col md:flex-row h-full md:h-auto max-h-[90vh]">
-             <div className="w-full md:w-80 bg-slate-50 p-8 border-r border-slate-100 overflow-y-auto shrink-0">
-                <h4 className="font-black text-slate-800 mb-6 flex items-center font-heading"><Clock size={20} className="mr-2 text-indigo-600"/> Horários</h4>
-                <div className="space-y-2">
-                   {scheduleSlots.map(slot => (
-                      <button key={slot.time} type="button" onClick={() => { setApptFormData({...apptFormData, time: slot.time}); setConfirmOverlap(slot.isBusy); }} className={`w-full text-left p-3 rounded-2xl border transition-all flex justify-between items-center ${apptFormData.time === slot.time ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : slot.isBusy ? 'bg-red-50 border-red-100 text-red-600' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'}`}>
-                         <span className="text-xs font-black">{slot.time}</span>
-                         {slot.isBusy ? <span className="text-[10px] font-bold truncate max-w-[80px]">{slot.customerName}</span> : <span className="text-[9px] font-black opacity-40 uppercase">Livre</span>}
-                      </button>
-                   ))}
-                </div>
-             </div>
-             <div className="flex-1 bg-white flex flex-col overflow-hidden">
-                <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-indigo-600 text-white">
-                   <div className="flex items-center"><Calendar size={28} className="mr-4" /><h3 className="font-black text-xl font-heading">Novo Agendamento</h3></div>
-                   <button onClick={() => setShowApptForm(false)} className="hover:bg-indigo-700 p-2 rounded-2xl"><X size={28}/></button>
-                </div>
-                <form onSubmit={handleApptSubmit} className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
-                   {isTimeOverlapping && (
-                      <div className="bg-red-50 border border-red-200 p-4 rounded-3xl flex items-center gap-4 animate-pulse">
-                         <AlertTriangle className="text-red-600" size={24} />
-                         <div className="flex-1"><p className="text-xs font-black text-red-700 uppercase">Sobreposição!</p><label className="flex items-center gap-2 mt-2 cursor-pointer"><input type="checkbox" checked={confirmOverlap} onChange={e => setConfirmOverlap(e.target.checked)} className="w-4 h-4 rounded text-red-600 focus:ring-red-500 border-red-300" /><span className="text-[10px] text-red-600 font-black uppercase">Ignorar conflito</span></label></div>
-                      </div>
-                   )}
-                   <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 shadow-inner">
-                      <div className="flex items-center justify-between mb-4">
-                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Cliente</span>
-                         <button type="button" onClick={() => setApptFormData({...apptFormData, isNewCustomer: !apptFormData.isNewCustomer})} className="text-[10px] font-black text-indigo-600 flex items-center uppercase tracking-tighter">{apptFormData.isNewCustomer ? "Pesquisar Base" : <><UserPlus size={14} className="mr-1.5"/> Registar Novo</>}</button>
-                      </div>
-                      {apptFormData.isNewCustomer ? (
-                         <div className="grid grid-cols-2 gap-4"><input placeholder="Nome" required className="p-5 border-none rounded-2xl bg-white text-sm shadow-sm outline-none font-bold" value={apptFormData.newName} onChange={e => setApptFormData({...apptFormData, newName: e.target.value})} /><input placeholder="Telemóvel" required className="p-5 border-none rounded-2xl bg-white text-sm shadow-sm outline-none font-bold" value={apptFormData.newPhone} onChange={e => setApptFormData({...apptFormData, newPhone: e.target.value})} /></div>
-                      ) : (
-                         <div className="relative">
-                            <input type="text" placeholder="Procurar na base..." className="w-full p-5 pl-14 border-none rounded-2xl focus:ring-2 focus:ring-indigo-100 bg-white text-slate-900 shadow-sm text-sm font-bold outline-none" value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }} onFocus={() => setShowCustomerDropdown(true)} />
-                            <Search size={20} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" />
-                            {showCustomerDropdown && customerSearch && (
-                               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-3xl shadow-2xl border border-slate-100 max-h-48 overflow-y-auto z-50 p-2">
-                                  {filteredCustomers.map(c => (
-                                     <button key={c.id} type="button" onClick={() => { setApptFormData({...apptFormData, customerId: c.id}); setCustomerSearch(c.name); setShowCustomerDropdown(false); }} className="w-full text-left px-5 py-4 hover:bg-slate-50 text-sm rounded-2xl transition-all"><div className="font-bold text-slate-800">{c.name}</div><div className="text-[10px] text-slate-400 font-black mt-0.5">{c.phone}</div></button>
-                                  ))}
-                               </div>
-                            )}
-                         </div>
-                      )}
-                   </div>
-                   <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 shadow-inner">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4 px-2">Serviços Disponíveis</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                         {services.map(s => (
-                            <button key={s.id} type="button" onClick={() => setApptFormData(prev => ({...prev, serviceIds: prev.serviceIds.includes(s.id) ? prev.serviceIds.filter(id => id !== s.id) : [...prev.serviceIds, s.id]}))} className={`p-4 rounded-3xl border-2 text-left text-xs font-black transition-all flex flex-col justify-between h-24 ${apptFormData.serviceIds.includes(s.id) ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white border-white text-slate-500 hover:border-indigo-100'}`}>
-                               <span className="line-clamp-2 leading-tight">{s.name}</span>
-                               <div className="flex justify-between items-center w-full mt-auto"><span className="opacity-50 text-[10px]">{symbol}{s.sellingPrice.toFixed(0)}</span>{apptFormData.serviceIds.includes(s.id) && <CheckCircle size={16} />}</div>
-                            </button>
-                         ))}
-                      </div>
-                   </div>
-                   <button type="submit" disabled={isTimeOverlapping && !confirmOverlap} className={`w-full py-6 rounded-[2rem] font-black uppercase text-sm transition-all shadow-2xl ${isTimeOverlapping && !confirmOverlap ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'}`}>Confirmar Agendamento</button>
-                </form>
-             </div>
-          </div>
+      {/* Loading de Sincronização Adaptado */}
+      {isGeneratingPDF && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-3xl">
+           <div className="bg-white p-12 sm:p-24 rounded-[3rem] sm:rounded-[6rem] shadow-2xl flex flex-col items-center text-center animate-[scaleIn_0.4s_ease-out] mx-4">
+              <div className="w-24 h-24 sm:w-40 sm:h-40 border-[8px] sm:border-[12px] border-emerald-50 border-t-emerald-600 rounded-full animate-spin mb-8 sm:mb-14 shadow-inner"></div>
+              <h3 className="text-2xl sm:text-4xl font-black text-slate-900 font-heading tracking-tight">Sincronizando Auditoria</h3>
+              <p className="text-slate-400 mt-4 max-w-xs font-bold uppercase text-[8px] sm:text-[10px] tracking-[0.3em] sm:tracking-[0.5em]">A preparar ficheiro de fecho...</p>
+           </div>
         </div>
-      )}
-
-      {/* Payment Selection Modal (Contas) */}
-      {showPaymentSelector && selectedExpense && (
-         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-               <div className="p-10 text-center border-b border-slate-50">
-                  <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 ${selectedExpense.type === 'fixed' ? 'bg-indigo-50 text-indigo-500' : 'bg-orange-50 text-orange-500'}`}>
-                     <CreditCard size={40} />
-                  </div>
-                  <h3 className="font-black text-2xl text-slate-800 font-heading">Liquidar Despesa</h3>
-                  <p className="text-slate-400 text-[10px] font-black mt-2 uppercase tracking-widest">{selectedExpense.name}</p>
-                  <p className="text-4xl font-black text-slate-900 mt-6">{symbol} {selectedExpense.amount.toFixed(0)}</p>
-               </div>
-               <div className="p-10 grid grid-cols-2 gap-4 bg-slate-50">
-                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
-                    <button key={m} onClick={() => { onPayExpense?.(selectedExpense.id, m as PaymentMethod); setShowPaymentSelector(false); setSelectedExpense(null); }} className="flex flex-col items-center p-6 bg-white hover:bg-emerald-50 rounded-[2rem] border border-white hover:border-emerald-200 transition-all shadow-sm active:scale-95 group">
-                       <div className="group-hover:scale-125 transition-transform mb-3">{getMethodIcon(m)}</div>
-                       <span className="text-[10px] font-black uppercase text-slate-600 tracking-tighter">{m}</span>
-                    </button>
-                  ))}
-               </div>
-               <button onClick={() => setShowPaymentSelector(false)} className="w-full py-6 text-slate-400 font-black text-xs uppercase bg-white">Voltar</button>
-            </div>
-         </div>
       )}
     </div>
   );
 };
+
+const Minus = ({size}: {size: number}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
 
 export default Dashboard;
