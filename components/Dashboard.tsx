@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { InventoryItem, CurrencyCode, SaleRecord, AuditLogEntry, Expense, PaymentMethod, Customer } from '../types';
+import { InventoryItem, CurrencyCode, SaleRecord, AuditLogEntry, Expense, PaymentMethod, Customer, Supplier } from '../types';
 import { CURRENCY_SYMBOLS, generateID } from '../constants';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -10,7 +10,7 @@ import {
 import { 
   AlertTriangle, TrendingUp, Wallet, ShoppingBag, 
   Clock, X, Receipt, Activity, Smartphone, CreditCard, 
-  CheckCircle, Award, Plus, ArrowDownCircle, Star, Zap, Info, Trash2, PackagePlus, User, ArrowUpRight, ArrowDownRight, Target, Users, BarChart3, Calculator
+  CheckCircle, Award, Plus, ArrowDownCircle, Star, Zap, Info, Trash2, PackagePlus, User, ArrowUpRight, ArrowDownRight, Target, Users, BarChart3, Calculator, Phone, MessageCircle, Truck
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -25,6 +25,7 @@ interface DashboardProps {
   currentOperator?: string;
   expenses?: Expense[]; 
   customers?: Customer[];
+  suppliers?: Supplier[];
   onSaveExpense?: (expense: Expense) => void; 
   onPayExpense?: (expenseId: string, method: PaymentMethod) => void;
   onDeleteExpense?: (id: string) => void;
@@ -33,7 +34,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ 
   items, sales = [], logs = [], currency, exchangeRates, onCloseRegister, 
   activeBusinessName = "Negócio", currentOperator = "Operador", expenses = [], 
-  customers = [], onSaveExpense, onPayExpense, onDeleteExpense, onRestock
+  customers = [], suppliers = [], onSaveExpense, onPayExpense, onDeleteExpense, onRestock
 }) => {
   const symbol = CURRENCY_SYMBOLS[currency];
   const rate = Number(exchangeRates[currency] || 1);
@@ -46,6 +47,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [showPaymentSelector, setShowPaymentSelector] = useState(false);
   const [showRestockModal, setShowRestockModal] = useState<InventoryItem | null>(null);
   const [restockQty, setRestockQty] = useState(10);
+  
+  // Contact State
+  const [contactingSupplier, setContactingSupplier] = useState<{item: InventoryItem, supplier: Supplier} | null>(null);
   
   const [detailModal, setDetailModal] = useState<{type: 'sale' | 'expense' | 'log', data: any} | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<'sales' | 'audit'>('sales');
@@ -71,15 +75,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     const dailyProfitRaw = todaysSales.reduce((acc, s) => acc + (Number(s.totalProfit) || 0), 0) * rate;
     
     const todaysPaidExpenses = expenses.filter(e => e.lastPaidDate?.startsWith(todayStr) && e.isPaid);
-    const dailyOutflows = todaysPaidExpenses.reduce((acc, e) => acc + (e.amount || 0), 0) * rate;
+    const dailyOutflows = todaysPaidExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0) * rate;
 
-    // Fixed: Cast operands to Number to satisfy TypeScript arithmetic requirements
+    // Fixed: Cast operands to Number to ensure they are treated as numeric for the arithmetic operation
     const dailyNetBalance = Number(dailyRevenue) - Number(dailyOutflows);
     const dailyProfitPercent = dailyRevenue > 0 ? (dailyProfitRaw / dailyRevenue) * 100 : 0;
     const salesCount = new Set(todaysSales.map(s => s.transactionId)).size;
     const avgTicket = salesCount > 0 ? dailyRevenue / salesCount : 0;
 
-    // Top Vendas
     const topSalesData = Object.entries(todaysSales.reduce((acc, s) => {
         acc[s.itemName] = (acc[s.itemName] || 0) + (Number(s.quantity) || 0);
         return acc;
@@ -87,17 +90,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value).slice(0, 3);
 
-    // Cliente do Dia
     const topCustomer = Object.entries(todaysSales.reduce((acc, s) => {
         if (!s.customerName) return acc;
-        // Fixed: Cast operands to Number to satisfy TypeScript arithmetic requirements
-        acc[s.customerName] = (acc[s.customerName] || 0) + (Number(s.totalRevenue) * Number(rate));
+        // Fixed: Ensure multiplication operands are treated as numbers
+        acc[s.customerName] = Number(acc[s.customerName] || 0) + (Number(s.totalRevenue) * Number(rate));
         return acc;
     }, {} as Record<string, number>))
       .map(([name, total]) => ({ name, total }))
       .sort((a, b) => b.total - a.total)[0];
 
-    // Gráfico Dinâmico - Processamento real das horas
     const productsInSales = Array.from(new Set(todaysSales.map(s => s.itemName))).slice(0, 5);
     const hours = Array.from({ length: 12 }, (_, i) => `${(i + 8).toString().padStart(2, '0')}:00`);
     
@@ -133,6 +134,26 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleRestockClick = (e: React.MouseEvent, item: InventoryItem) => {
     e.stopPropagation();
     setShowRestockModal(item);
+  };
+
+  const handleContactClick = (e: React.MouseEvent, item: InventoryItem) => {
+    e.stopPropagation();
+    const supplier = suppliers.find(s => s.id === item.supplierId) || suppliers.find(s => s.name === item.supplierName);
+    if (supplier && supplier.phone) {
+      setContactingSupplier({ item, supplier });
+    } else {
+      alert("Não foi encontrado o contacto do fornecedor deste produto. Verifique o registo na aba Fornecedores.");
+    }
+  };
+
+  const openWhatsApp = (phone: string, itemName: string, supplierName: string) => {
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (!cleanPhone.startsWith('258') && cleanPhone.length === 9) {
+      cleanPhone = '258' + cleanPhone;
+    }
+    const message = encodeURIComponent(`Olá ${supplierName}, aqui é da loja ${activeBusinessName}. O nosso stock do produto "${itemName}" está baixo. Poderia verificar a disponibilidade de reposição?`);
+    window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
+    setContactingSupplier(null);
   };
 
   const confirmRestock = () => {
@@ -185,7 +206,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-10 pb-24 md:pb-10 max-w-[1600px] mx-auto animate-[fadeIn_0.4s_ease-out] bg-slate-50/30">
       
-      {/* Header Premium - Adaptado para Mobile */}
+      {/* Header Premium */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="w-full md:w-auto">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 font-heading tracking-tight">Consola Global</h2>
@@ -203,7 +224,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Alerta de Stock com Reposição Direta */}
+      {/* Alerta de Stock com Reposição e Contacto */}
       {lowStockItems.length > 0 && (
         <div className="bg-white/60 backdrop-blur-md border border-red-100 rounded-[2rem] sm:rounded-[2.5rem] p-4 sm:p-6 shadow-2xl shadow-red-50/40 flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
           <div className="flex items-center gap-3 sm:gap-5 w-full md:w-auto">
@@ -220,12 +241,22 @@ const Dashboard: React.FC<DashboardProps> = ({
                    <p className="text-[10px] sm:text-xs font-black text-slate-800 truncate max-w-[100px]">{item.name}</p>
                    <p className="text-[9px] sm:text-[10px] text-red-500 font-bold mt-0.5 sm:mt-1">Apenas {item.quantity} un</p>
                 </div>
-                <button 
-                  onClick={(e) => handleRestockClick(e, item)}
-                  className="bg-emerald-50 p-2 sm:p-2.5 rounded-xl text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm active:scale-90"
-                >
-                  <PackagePlus size={16} className="sm:w-[18px] sm:h-[18px]" />
-                </button>
+                <div className="flex gap-1.5">
+                  <button 
+                    onClick={(e) => handleContactClick(e, item)}
+                    className="bg-blue-50 p-2 sm:p-2.5 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-90"
+                    title="Contactar Fornecedor"
+                  >
+                    <Truck size={16} className="sm:w-[18px] sm:h-[18px]" />
+                  </button>
+                  <button 
+                    onClick={(e) => handleRestockClick(e, item)}
+                    className="bg-emerald-50 p-2 sm:p-2.5 rounded-xl text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm active:scale-90"
+                    title="Reposição Rápida"
+                  >
+                    <PackagePlus size={16} className="sm:w-[18px] sm:h-[18px]" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -295,7 +326,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         ))}
       </div>
 
-      {/* Fluxo Dinâmico - GRÁFICO ATIVO */}
+      {/* Performance Chart */}
       <div className="bg-white p-6 sm:p-8 md:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[400px] sm:h-[500px] md:h-[650px]">
         <div className="mb-6 sm:mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 sm:gap-8">
            <div className="space-y-2 w-full sm:w-auto">
@@ -352,7 +383,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10">
-        {/* Tesouraria - CLIQUE ATIVADO PARA PAGAMENTO */}
+        {/* Saídas / Despesas */}
         <div className="bg-white rounded-[2.5rem] sm:rounded-[4rem] border border-slate-50 shadow-sm overflow-hidden flex flex-col h-[500px] sm:h-[580px]">
           <div className="p-6 sm:p-12 pb-4 sm:pb-6">
             <div className="flex justify-between items-center mb-6 sm:mb-10">
@@ -377,7 +408,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-black text-slate-900 text-base sm:text-xl">{symbol}{exp.amount.toLocaleString()}</div>
+                    <div className="font-black text-slate-900 text-base sm:text-xl">{symbol}{exp.amount.toLocaleString() || 0}</div>
                     {exp.paymentMethod && <div className="text-[8px] sm:text-[9px] font-black text-emerald-600 uppercase flex items-center justify-end mt-1 truncate">{exp.paymentMethod}</div>}
                   </div>
                 </div>
@@ -386,7 +417,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        {/* Auditoria */}
+        {/* Auditoria Tabbed Panel */}
         <div className="bg-white p-6 sm:p-12 rounded-[2.5rem] sm:rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[500px] sm:h-[580px]">
           <div className="flex items-center space-x-2 sm:space-x-3 mb-6 sm:mb-10 bg-slate-100 p-1.5 rounded-[1.8rem] sm:rounded-[2.2rem] w-full sm:w-fit mx-auto shadow-inner">
              <button onClick={() => setRightPanelTab('sales')} className={`flex-1 sm:flex-none px-6 sm:px-12 py-2.5 sm:py-3.5 text-[9px] sm:text-[11px] font-black uppercase transition-all rounded-[1.5rem] sm:rounded-[1.8rem] ${rightPanelTab === 'sales' ? 'bg-white text-slate-800 shadow-lg' : 'text-slate-400'}`}>Vendas</button>
@@ -427,7 +458,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Recibo Auditoria */}
+      {/* Recibo Auditoria Modal */}
       {detailModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
@@ -467,7 +498,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Formulário Saída */}
+      {/* Expense Form Modal */}
       {showExpenseForm && (
          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6 animate-[fadeIn_0.3s]">
             <div className="bg-white w-full max-w-sm rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
@@ -494,15 +525,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                  setShowExpenseForm(false);
                }} className="p-8 sm:p-12 space-y-8 sm:space-y-10 overflow-y-auto max-h-[70vh]">
                   <div className="space-y-4 sm:space-y-5">
-                    <input required name="name" placeholder="Descrição do Gasto" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-transparent focus:border-red-100 shadow-inner transition-all text-xs sm:text-sm" />
+                    <input required name="name" placeholder="Descrição do Gasto" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-transparent focus:border-red-100 shadow-inner transition-all text-xs sm:text-sm text-gray-900" />
                     <input required name="amount" type="number" placeholder="0.00 MT" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-black text-2xl sm:text-4xl outline-none border border-transparent focus:border-red-100 shadow-inner transition-all text-red-600 text-center" />
                   </div>
                   
                   <div className="space-y-3 sm:space-y-4">
                     <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 block">Tipo de Movimento</label>
                     <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-[1.4rem] sm:rounded-[1.8rem] shadow-inner">
-                       <button type="button" onClick={() => setSelectedExpense(prev => ({...prev!, type: 'variable'}))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${selectedExpense?.type !== 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Pontual</button>
-                       <button type="button" onClick={() => setSelectedExpense(prev => ({...prev!, type: 'fixed'}))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${selectedExpense?.type === 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Fixa</button>
+                       <button type="button" onClick={() => setSelectedExpense(prev => (prev ? {...prev, type: 'variable'} : null))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${(selectedExpense?.type || 'variable') !== 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Pontual</button>
+                       <button type="button" onClick={() => setSelectedExpense(prev => (prev ? {...prev, type: 'fixed'} : null))} className={`py-3 rounded-[1rem] sm:rounded-[1.4rem] text-[9px] sm:text-[10px] font-black uppercase transition-all ${selectedExpense?.type === 'fixed' ? 'bg-white text-slate-800 shadow-md' : 'text-slate-400'}`}>Fixa</button>
                        <input type="hidden" name="type" value={selectedExpense?.type || 'variable'} />
                     </div>
                   </div>
@@ -511,7 +542,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     {selectedExpense?.type === 'fixed' ? (
                        <div className="space-y-3 sm:space-y-4">
                           <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 block">Vencimento</label>
-                          <input required type="date" name="dueDate" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-red-100 shadow-inner text-xs sm:text-sm" />
+                          <input required type="date" name="dueDate" className="w-full p-4 sm:p-6 bg-slate-50 rounded-[1.2rem] sm:rounded-[2rem] font-bold outline-none border border-red-100 shadow-inner text-xs sm:text-sm text-gray-900" />
                        </div>
                     ) : (
                        <div className="space-y-3 sm:space-y-4">
@@ -536,7 +567,7 @@ const Dashboard: React.FC<DashboardProps> = ({
          </div>
       )}
 
-      {/* Ações de Despesa (Fixa ou Variável) */}
+      {/* Expense Action Modal */}
       {showExpenseActionModal && selectedExpense && (
          <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-900/70 backdrop-blur-xl p-4">
             <div className="bg-white w-full max-w-sm rounded-[4rem] shadow-2xl overflow-hidden p-14 text-center animate-[scaleIn_0.3s_ease-out]">
@@ -565,29 +596,7 @@ const Dashboard: React.FC<DashboardProps> = ({
          </div>
       )}
 
-      {/* Seletor de Pagamento de Despesa */}
-      {showPaymentSelector && selectedExpense && (
-         <div className="fixed inset-0 z-[170] flex items-center justify-center bg-slate-900/80 backdrop-blur-3xl p-4">
-            <div className="bg-white w-full max-w-xs rounded-[4.5rem] shadow-2xl overflow-hidden p-14 text-center border border-white/20">
-               <h3 className="font-black text-2xl text-slate-900 mb-12 font-heading">Meio de Pagamento</h3>
-               <div className="grid grid-cols-2 gap-6 mb-12">
-                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
-                    <button 
-                      key={m} 
-                      onClick={() => { onPayExpense?.(selectedExpense.id, m as PaymentMethod); setShowPaymentSelector(false); setShowExpenseActionModal(false); }} 
-                      className="flex flex-col items-center justify-center p-8 bg-slate-50 hover:bg-emerald-600 hover:text-white rounded-[2.8rem] border border-slate-100 transition-all group shadow-sm active:scale-90"
-                    >
-                      {getMethodIcon(m)}
-                      <span className="mt-4 text-[10px] font-black uppercase group-hover:text-white tracking-widest">{m}</span>
-                    </button>
-                  ))}
-               </div>
-               <button onClick={() => setShowPaymentSelector(false)} className="text-slate-400 font-black text-[10px] uppercase tracking-[0.4em] hover:text-slate-600 transition-colors">Voltar</button>
-            </div>
-         </div>
-      )}
-
-      {/* Reposição de Stock */}
+      {/* Restock Modal */}
       {showRestockModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 sm:p-6">
            <div className="bg-white p-8 sm:p-12 rounded-[3rem] sm:rounded-[4.5rem] shadow-2xl w-full max-w-xs text-center animate-[scaleIn_0.3s_ease-out]">
@@ -611,7 +620,46 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Loading de Sincronização */}
+      {/* Supplier Contact Modal */}
+      {contactingSupplier && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
+           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+              <div className="p-8 text-center bg-slate-50 border-b border-slate-100">
+                 <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                    <Truck size={32} />
+                 </div>
+                 <h3 className="text-xl font-black text-slate-800 font-heading">Contactar Fornecedor</h3>
+                 <p className="text-sm text-slate-500 mt-1">{contactingSupplier.supplier.name}</p>
+                 <div className="mt-4 bg-white p-3 rounded-2xl border border-slate-200 inline-block">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto Alvo</p>
+                    <p className="text-xs font-bold text-slate-700">{contactingSupplier.item.name}</p>
+                 </div>
+              </div>
+              <div className="p-6 space-y-3">
+                 <a 
+                    href={`tel:${contactingSupplier.supplier.phone.replace(/\D/g, '')}`}
+                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-100"
+                 >
+                    <Phone size={20} /> Chamada Direta
+                 </a>
+                 <button 
+                    onClick={() => openWhatsApp(contactingSupplier.supplier.phone, contactingSupplier.item.name, contactingSupplier.supplier.name)}
+                    className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all active:scale-95 shadow-lg shadow-emerald-100"
+                 >
+                    <MessageCircle size={22} /> Enviar WhatsApp
+                 </button>
+                 <button 
+                    onClick={() => setContactingSupplier(null)}
+                    className="w-full py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest mt-2"
+                 >
+                    Cancelar
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Loading Overlay */}
       {isGeneratingPDF && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-3xl">
            <div className="bg-white p-12 sm:p-24 rounded-[3rem] sm:rounded-[6rem] shadow-2xl flex flex-col items-center text-center animate-[scaleIn_0.4s_ease-out] mx-4">
