@@ -26,6 +26,9 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
+  // Delete Confirmation State
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<InventoryItem[] | null>(null);
+
   // Modal de Urgências
   const [showUrgencyModal, setShowUrgencyModal] = useState(false);
   const [urgencyTab, setUrgencyTab] = useState<'stock' | 'expiry'>('stock');
@@ -149,18 +152,10 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
     return sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />;
   };
 
-  const handleDeleteGroup = (variants: InventoryItem[]) => {
-    if (variants && variants.length > 0) {
-      const name = String(variants[0].name || 'este produto');
-      const isService = variants[0].type === 'service';
-      
-      const confirmMsg = isService 
-        ? `Tem a certeza que deseja eliminar o serviço "${name}"?`
-        : `Tem a certeza que deseja eliminar "${name}" e todas as suas ${variants.length} variantes/lotes? Esta ação é irreversível.`;
-
-      if (window.confirm(confirmMsg)) {
-        variants.forEach(v => onDelete(v.id));
-      }
+  const executeDelete = () => {
+    if (confirmDeleteGroup) {
+      confirmDeleteGroup.forEach(v => onDelete(v.id));
+      setConfirmDeleteGroup(null);
     }
   };
 
@@ -224,8 +219,8 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
            <p className="text-gray-500 mt-1 font-medium flex items-center"><Activity size={16} className="mr-2 text-emerald-500" /> Monitorização ativa</p>
         </div>
         <div className="flex bg-gray-100 p-1 rounded-2xl w-fit mx-auto md:mx-0 shadow-inner">
-             <button onClick={() => setViewType('product')} className={`flex items-center px-6 py-2 rounded-xl text-sm font-black transition-all ${viewType === 'product' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Box size={18} className="mr-2" /> PRODUTOS</button>
-             <button onClick={() => setViewType('service')} className={`flex items-center px-6 py-2 rounded-xl text-sm font-black transition-all ${viewType === 'service' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Briefcase size={18} className="mr-2" /> SERVIÇOS</button>
+             <button onClick={() => setViewType('product')} className={`flex items-center px-6 py-2.5 rounded-xl text-sm font-black transition-all ${viewType === 'product' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Box size={18} className="mr-2" /> PRODUTOS</button>
+             <button onClick={() => setViewType('service')} className={`flex items-center px-6 py-2.5 rounded-xl text-sm font-black transition-all ${viewType === 'service' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><Briefcase size={18} className="mr-2" /> SERVIÇOS</button>
         </div>
       </div>
 
@@ -296,7 +291,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
               </div>
               <div className="flex gap-2">
                 <button onClick={() => onEdit(group.variants[0])} className="p-2.5 text-emerald-600 bg-emerald-50 rounded-xl active:scale-95 transition-transform"><Edit2 size={18} /></button>
-                <button onClick={() => handleDeleteGroup(group.variants)} className="p-2.5 text-red-500 bg-red-50 rounded-xl active:scale-95 transition-transform"><Trash2 size={18} /></button>
+                <button onClick={() => setConfirmDeleteGroup(group.variants)} className="p-2.5 text-red-500 bg-red-50 rounded-xl active:scale-95 transition-transform"><Trash2 size={18} /></button>
               </div>
             </div>
             <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-3">
@@ -355,7 +350,7 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
                 <td className="px-8 py-6 text-right align-top">
                   <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
                     <button onClick={() => onEdit(group.variants[0])} className="p-2.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-90"><Edit2 size={18} /></button>
-                    <button onClick={() => handleDeleteGroup(group.variants)} className="p-2.5 text-red-500 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-90"><Trash2 size={18} /></button>
+                    <button onClick={() => setConfirmDeleteGroup(group.variants)} className="p-2.5 text-red-500 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl transition-all shadow-sm active:scale-90"><Trash2 size={18} /></button>
                   </div>
                 </td>
               </tr>
@@ -363,6 +358,28 @@ const InventoryList: React.FC<InventoryListProps> = ({ items, onDelete, onEdit, 
           </tbody>
         </table>
       </div>
+
+      {/* CONFIRMAÇÃO DE ELIMINAÇÃO */}
+      {confirmDeleteGroup && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+            <div className="p-8 text-center bg-red-50 border-b border-red-100">
+               <div className="w-16 h-16 bg-red-100 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><Trash2 size={32} /></div>
+               <h3 className="text-xl font-black text-slate-800 font-heading">Eliminar Produto?</h3>
+               <p className="text-sm text-slate-500 mt-2">Deseja apagar permanentemente <strong>"{confirmDeleteGroup[0].name}"</strong>?</p>
+               {confirmDeleteGroup.length > 1 && (
+                  <div className="mt-3 bg-white p-2 rounded-xl border border-red-200 inline-block text-[10px] font-black text-red-600 uppercase">
+                     Inclui {confirmDeleteGroup.length} variantes/lotes
+                  </div>
+               )}
+            </div>
+            <div className="p-6 space-y-3">
+               <button onClick={executeDelete} className="w-full py-4 bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-100">Confirmar Eliminação</button>
+               <button onClick={() => setConfirmDeleteGroup(null)} className="w-full py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest mt-2">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL URGÊNCIAS */}
       {showUrgencyModal && (
