@@ -1,29 +1,22 @@
 
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import App from './App';
 import { APP_VERSION } from './constants';
-
-// Polyfill para process.env para evitar ReferenceError no browser
-if (typeof window !== 'undefined' && !(window as any).process) {
-  (window as any).process = { env: {} };
-}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Não foi possível encontrar o elemento root para montar a aplicação.");
 }
 
-const root = ReactDOM.createRoot(rootElement);
+const root = createRoot(rootElement);
 
 /**
- * Safely unregisters service workers with robust error handling.
+ * Safely unregisters service workers.
  */
 const safeUnregisterSW = async () => {
   try {
     if (!('serviceWorker' in navigator)) return;
-    if (document.readyState === 'loading') return;
-
     const registrations = await navigator.serviceWorker.getRegistrations();
     for (const reg of registrations) {
       await reg.unregister();
@@ -51,8 +44,8 @@ const initApp = async () => {
   
   if (storedVersion && storedVersion !== APP_VERSION) {
     console.log(`Nova versão ${APP_VERSION} detetada. A limpar ambiente...`);
-    safeUnregisterSW();
-    safeClearCaches();
+    await safeUnregisterSW();
+    await safeClearCaches();
     localStorage.setItem('app_version', APP_VERSION);
   } else if (!storedVersion) {
     localStorage.setItem('app_version', APP_VERSION);
@@ -65,8 +58,4 @@ const initApp = async () => {
   );
 };
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initApp);
-} else {
-  initApp();
-}
+initApp();
