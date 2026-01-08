@@ -1,7 +1,13 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { APP_VERSION } from './constants';
+
+// Polyfill para process.env para evitar ReferenceError no browser
+if (typeof window !== 'undefined' && !(window as any).process) {
+  (window as any).process = { env: {} };
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -16,8 +22,6 @@ const root = ReactDOM.createRoot(rootElement);
 const safeUnregisterSW = async () => {
   try {
     if (!('serviceWorker' in navigator)) return;
-    
-    // Fix: Updated invalid comparison 'uninitialized' to standard 'loading' state
     if (document.readyState === 'loading') return;
 
     const registrations = await navigator.serviceWorker.getRegistrations();
@@ -25,13 +29,12 @@ const safeUnregisterSW = async () => {
       await reg.unregister();
     }
   } catch (err) {
-    // Silent fail for environmental/sandbox restrictions
-    console.debug("SW Cleanup skipped: Environment restriction or invalid state.");
+    console.debug("SW Cleanup skipped.");
   }
 };
 
 /**
- * Safely clears browser caches with robust error handling.
+ * Safely clears browser caches.
  */
 const safeClearCaches = async () => {
   try {
@@ -48,11 +51,8 @@ const initApp = async () => {
   
   if (storedVersion && storedVersion !== APP_VERSION) {
     console.log(`Nova versão ${APP_VERSION} detetada. A limpar ambiente...`);
-    
-    // Run cleanup but don't await it to avoid blocking UI if it fails
     safeUnregisterSW();
     safeClearCaches();
-
     localStorage.setItem('app_version', APP_VERSION);
   } else if (!storedVersion) {
     localStorage.setItem('app_version', APP_VERSION);
@@ -65,7 +65,6 @@ const initApp = async () => {
   );
 };
 
-// Ensure we wait for the document to be interactive at least
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {

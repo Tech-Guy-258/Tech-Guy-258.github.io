@@ -91,9 +91,8 @@
     <div id="root"></div>
     
     <script>
-      // LIMPEZA DEFENSIVA DE AMBIENTE - Executada após o load para evitar erros de estado
       window.addEventListener('load', function() {
-        const CURRENT_VERSION = '3.2.3'; 
+        const CURRENT_VERSION = '3.3.3'; 
         const stored = localStorage.getItem('html_version');
 
         if (stored !== CURRENT_VERSION) {
@@ -115,6 +114,6 @@
       });
     </script>
 
-    <script type="module" src="/index.tsx?v=3.2.3"></script>
+    <script type="module" src="/index.tsx?v=3.3.3"></script>
   </body>
 </html>

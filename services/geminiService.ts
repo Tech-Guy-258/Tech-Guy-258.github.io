@@ -2,18 +2,23 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { InventoryItem, Category, Unit, RecipeSuggestion } from "../types";
 
-// Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Helper to get AI instance safely.
+ */
+const getAI = () => {
+  const apiKey = process.env.API_KEY || "";
+  return new GoogleGenAI({ apiKey });
+};
 
 /**
  * Analyzes an image of a grocery product to extract details.
  */
 export const analyzeProductImage = async (base64Image: string): Promise<Partial<InventoryItem> | null> => {
   try {
+    const ai = getAI();
     const prompt = `Analise esta imagem de um produto de mercearia. 
     Identifique o nome do produto, a categoria mais provável, a unidade de medida e o TAMANHO/PESO LÍQUIDO da embalagem.`;
 
-    // Fixed: Updated to 'gemini-3-flash-preview' for vision analysis and enabled responseSchema
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
@@ -67,6 +72,7 @@ export const analyzeProductImage = async (base64Image: string): Promise<Partial<
  */
 export const suggestRecipes = async (items: InventoryItem[]): Promise<RecipeSuggestion[]> => {
   try {
+    const ai = getAI();
     const ingredientsList = items
       .filter(i => i.quantity > 0)
       .map(item => `${item.name} (${item.quantity} ${item.unit})`)
@@ -112,6 +118,7 @@ export const suggestRecipes = async (items: InventoryItem[]): Promise<RecipeSugg
  */
 export const chatWithInventoryAssistant = async (message: string, contextItems: InventoryItem[]) => {
   try {
+    const ai = getAI();
     const context = `
       Estás a agir como um assistente de gestão profissional de uma loja em Moçambique.
       Inventário atual: ${JSON.stringify(contextItems.map(i => ({ n: i.name, q: i.quantity, u: i.unit })))}
