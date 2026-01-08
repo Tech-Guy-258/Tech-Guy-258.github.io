@@ -1,13 +1,14 @@
+
 import React, { useMemo, useState } from 'react';
 import { InventoryItem, CurrencyCode, SaleRecord, AuditLogEntry, Expense, PaymentMethod, Customer, Supplier, Appointment, AppointmentStatus } from '../types';
 import { CURRENCY_SYMBOLS, generateID } from '../constants';
 import { useNavigate } from 'react-router-dom';
 import { 
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend
 } from 'recharts';
 import { 
   AlertTriangle, TrendingUp, Wallet, ShoppingBag, 
-  Clock, X, Receipt, CheckCircle, Award, Plus, ArrowDownCircle, PackagePlus, User, ArrowUpRight, ArrowDownRight, Users, BarChart3, Calculator, Phone, MessageCircle, Truck, Minus, ChevronDown, Calendar, ChevronRight, Smartphone, CalendarDays, Heart, Check
+  Clock, X, Receipt, CheckCircle, Award, Plus, ArrowDownCircle, PackagePlus, User, ArrowUpRight, ArrowDownRight, Users, BarChart3, Calculator, Phone, MessageCircle, Truck, Minus, Calendar, ChevronRight, Smartphone, CalendarDays, Heart, Check, Percent, Filter, ListFilter, Activity, Hash, Info, ShoppingCart, Building2, Star
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -32,7 +33,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
-  items, sales = [], logs = [], currency, exchangeRates, onCloseRegister, 
+  items = [], sales = [], logs = [], currency, exchangeRates, onCloseRegister, 
   activeBusinessName = "Negócio", currentOperator = "Operador", expenses = [], 
   customers = [], suppliers = [], appointments = [], onSaveExpense, onPayExpense, onDeleteExpense, onRestock,
   onUpdateAppointmentStatus, onCompleteAppointment
@@ -41,113 +42,96 @@ const Dashboard: React.FC<DashboardProps> = ({
   const rate = Number(exchangeRates[currency] || 1);
   const navigate = useNavigate();
 
-  // States
+  // Estados de UI
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newExpense, setNewExpense] = useState<Omit<Expense, 'id'>>({ 
     name: '', amount: 0, type: 'variable', isPaid: false, 
-    nextDueDate: new Date().toISOString().split('T')[0], paymentDay: new Date().getDate()
+    nextDueDate: new Date().toISOString().split('T')[0]
   });
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [showExpenseActionModal, setShowExpenseActionModal] = useState(false);
   const [showPaymentSelector, setShowPaymentSelector] = useState(false);
-  const [monthsToPay, setMonthsToPay] = useState(1);
   const [showRestockModal, setShowRestockModal] = useState<InventoryItem | null>(null);
   const [restockQty, setRestockQty] = useState(10);
   const [contactingSupplier, setContactingSupplier] = useState<{item: InventoryItem, supplier: Supplier} | null>(null);
   const [viewingReceiptGroup, setViewingReceiptGroup] = useState<SaleRecord[] | null>(null);
   const [viewingLog, setViewingLog] = useState<AuditLogEntry | null>(null);
   const [rightPanelTab, setRightPanelTab] = useState<'sales' | 'audit'>('sales');
-  const [chartMetric, setChartMetric] = useState<'revenue' | 'quantity'>('revenue');
-  const [selectedChartItem, setSelectedChartItem] = useState<string>('all');
+  const [agendaTab, setAgendaTab] = useState<'today' | 'tomorrow'>('today');
   
-  // Appointment States
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
-  const [showApptActions, setShowApptActions] = useState(false);
-  const [agendaDay, setAgendaDay] = useState<'hoje' | 'amanha'>('hoje');
-  const [paymentToConfirm, setPaymentToConfirm] = useState<{ id: string, method: PaymentMethod, type: 'appointment' | 'expense' } | null>(null);
+  // Confirmação final de saída
+  const [expensePaymentToConfirm, setExpensePaymentToConfirm] = useState<{ expense: Expense, method: PaymentMethod } | null>(null);
+  
+  // Ações de Agendamento
+  const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
+  const [showApptPaymentSelector, setShowApptPaymentSelector] = useState(false);
+  const [apptPaymentToConfirm, setApptPaymentToConfirm] = useState<{ appt: Appointment, method: PaymentMethod } | null>(null);
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
   const formatDateTime = (iso: string) => {
     const d = new Date(iso);
     return {
       date: d.toLocaleDateString('pt-PT'),
-      time: d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
-      full: `${d.toLocaleDateString('pt-PT')} às ${d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`
+      time: d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
     };
   };
 
   const lowStockItems = useMemo(() => items.filter(i => i.type === 'product' && i.quantity <= i.lowStockThreshold), [items]);
 
   const stats = useMemo(() => {
-    const todaysSales = sales.filter(s => s.date && s.date.startsWith(todayStr));
-    const dailyRevenue = (todaysSales.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0)) * rate;
-    const dailyProfitRaw = (todaysSales.reduce((acc, s) => acc + (Number(s.totalProfit) || 0), 0)) * rate;
+    const todaysSales = (sales || []).filter(s => s.date && s.date.startsWith(todayStr));
     
-    const paymentMethods: Record<PaymentMethod, number> = { cash: 0, mpesa: 0, emola: 0, card: 0 };
+    // Canais de Entrada
+    const channelFlow: Record<PaymentMethod, number> = { cash: 0, mpesa: 0, emola: 0, card: 0 };
     todaysSales.forEach(s => {
-      paymentMethods[s.paymentMethod] = (paymentMethods[s.paymentMethod] || 0) + (Number(s.totalRevenue) * rate);
+      if (channelFlow[s.paymentMethod] !== undefined) {
+        channelFlow[s.paymentMethod] += (Number(s.totalRevenue) * rate);
+      }
     });
 
-    const dailyOutflows = (logs || [])
-      .filter(l => l.action === 'EXPENSE' && l.timestamp.startsWith(todayStr))
-      .reduce((acc, log) => {
-          const match = log.details.match(/\((\d+)MT\)/);
-          const amount = match ? parseInt(match[1]) : 0;
-          return acc + amount;
-      }, 0) * rate;
+    // Canais de Saída
+    const outflowChannelFlow: Record<PaymentMethod, number> = { cash: 0, mpesa: 0, emola: 0, card: 0 };
+    const paidExpensesToday = (expenses || []).filter(e => e.isPaid && e.lastPaidDate?.startsWith(todayStr));
+    paidExpensesToday.forEach(e => {
+       if (e.paymentMethod && outflowChannelFlow[e.paymentMethod] !== undefined) {
+          outflowChannelFlow[e.paymentMethod] += (Number(e.amount) * rate);
+       }
+    });
 
+    const dailyRevenue = Object.values(channelFlow).reduce((a, b) => a + b, 0);
+    const dailyProfitRaw = todaysSales.reduce((acc, s) => acc + (Number(s.totalProfit) || 0), 0) * rate;
+    const dailyMarginPercent = dailyRevenue > 0 ? (dailyProfitRaw / dailyRevenue) * 100 : 0;
+    const dailyOutflows = Object.values(outflowChannelFlow).reduce((a, b) => a + b, 0);
     const dailyNetBalance = dailyRevenue - dailyOutflows;
-    const dailyProfitPercent = dailyRevenue > 0 ? (dailyProfitRaw / dailyRevenue) * 100 : 0;
-    const salesCount = new Set(todaysSales.map(s => s.transactionId)).size;
-    const avgTicket = salesCount > 0 ? dailyRevenue / salesCount : 0;
 
-    const topSalesData = Object.entries(todaysSales.reduce((acc, s) => {
-        acc[s.itemName] = (acc[s.itemName] || 0) + (s.quantity || 0);
-        return acc;
-    }, {} as Record<string, number>))
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => (b.value as number) - (a.value as number)).slice(0, 3);
-
-    const todayAppts = (appointments || [])
-      .filter(a => a.date === todayStr && a.status !== 'completed' && a.status !== 'cancelled')
-      .sort((a, b) => a.time.localeCompare(b.time));
-    const tomorrowAppts = (appointments || [])
-      .filter(a => a.date === tomorrowStr && a.status !== 'completed' && a.status !== 'cancelled')
-      .sort((a, b) => a.time.localeCompare(b.time));
-    
-    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const absentCustomers = (customers || []).filter(c => new Date(c.lastVisit) < thirtyDaysAgo).sort((a, b) => new Date(a.lastVisit).getTime() - new Date(b.lastVisit).getTime()).slice(0, 5);
-
-    const soldItemsList = Array.from(new Set(todaysSales.map(s => s.itemName))).sort();
-
-    let startHour = 8, endHour = 19;
-    if (todaysSales.length > 0) {
-      const saleHours = todaysSales.map(s => new Date(s.date).getHours());
-      startHour = Math.min(...saleHours);
-      endHour = Math.max(...saleHours) + 1;
-    }
-
-    const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => `${(startHour + i).toString().padStart(2, '0')}:00`);
-    const hourlyFlowData = hours.map(h => {
-        const hourInt = parseInt(h.split(':')[0]);
-        const data: any = { time: h };
-        const hourSales = todaysSales.filter(s => new Date(s.date).getHours() === hourInt);
-        const filteredSales = selectedChartItem === 'all' ? hourSales : hourSales.filter(s => s.itemName === selectedChartItem);
-        data.total = chartMetric === 'revenue' ? filteredSales.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0) : filteredSales.reduce((acc, s) => acc + (Number(s.quantity) || 0), 0);
-        return data;
+    // Cliente do Dia
+    const customerMap: Record<string, {name: string, total: number}> = {};
+    todaysSales.forEach(s => {
+       if (s.customerId) {
+          if (!customerMap[s.customerId]) customerMap[s.customerId] = { name: s.customerName || 'Cliente', total: 0 };
+          customerMap[s.customerId].total += (s.totalRevenue * rate);
+       }
     });
+    const customerOfTheDay = Object.values(customerMap).sort((a,b) => b.total - a.total)[0] || null;
 
-    const visibleExpenses = (expenses || []).filter(e => {
-       if (e.isPaid) return true;
-       const today = new Date();
-       const nextDue = new Date(e.nextDueDate);
-       const diffTime = nextDue.getTime() - today.getTime();
-       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-       return diffDays <= 30;
-    });
+    // Top 5 Performance
+    const getTop5 = (type: 'product' | 'service') => {
+       const map: Record<string, {name: string, qty: number, revenue: number}> = {};
+       todaysSales.forEach(s => {
+          const item = items.find(i => i.id === s.itemId);
+          if (item?.type === type) {
+             if (!map[s.itemId]) map[s.itemId] = { name: s.itemName, qty: 0, revenue: 0 };
+             map[s.itemId].qty += s.quantity;
+             map[s.itemId].revenue += (s.totalRevenue * rate);
+          }
+       });
+       return Object.values(map).sort((a,b) => b.revenue - a.revenue).slice(0, 5);
+    };
+
+    const topProducts = getTop5('product');
+    const topServices = getTop5('service');
 
     const groupedSales = Object.values(
       todaysSales.reduce((acc, s) => {
@@ -157,68 +141,73 @@ const Dashboard: React.FC<DashboardProps> = ({
       }, {} as Record<string, SaleRecord[]>)
     ).sort((a, b) => new Date(b[0].date).getTime() - new Date(a[0].date).getTime());
 
-    return { 
-      dailyRevenue, dailyOutflows, dailyNetBalance, dailyProfitPercent, 
-      salesCount, topSalesData, hourlyFlowData, customersUnique: (customers || []).length,
-      todaysSales, groupedSales, avgTicket, visibleExpenses, soldItemsList, todayAppts, tomorrowAppts, absentCustomers,
-      paymentMethods
-    };
-  }, [sales, expenses, logs, rate, todayStr, chartMetric, selectedChartItem, appointments, tomorrowStr, customers]);
+    const activeAppts = (appointments || []).filter(a => a.status !== 'completed' && a.status !== 'cancelled');
+    const todayAppts = activeAppts.filter(a => a.date === todayStr);
+    const tomorrowAppts = activeAppts.filter(a => a.date === tomorrowStr);
 
-  const handleSaveExpense = (e: React.FormEvent) => {
+    return { 
+      dailyRevenue, dailyProfitRaw, dailyMarginPercent, dailyOutflows, dailyNetBalance, 
+      groupedSales, channelFlow, outflowChannelFlow, customerOfTheDay, topProducts, topServices,
+      todayAppts, tomorrowAppts,
+      allExpenses: (expenses || []).sort((a, b) => {
+        if (a.isPaid === b.isPaid) return 0;
+        return a.isPaid ? 1 : -1;
+      })
+    };
+  }, [sales, expenses, rate, todayStr, tomorrowStr, appointments, items]);
+
+  const handleSaveNewExpense = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newExpense.name || newExpense.amount <= 0) return;
     onSaveExpense?.({ ...newExpense, id: generateID() } as Expense);
     setShowExpenseForm(false);
-    setNewExpense({ name: '', amount: 0, type: 'variable', isPaid: false, nextDueDate: new Date().toISOString().split('T')[0], paymentDay: new Date().getDate() });
+    setNewExpense({ name: '', amount: 0, type: 'variable', isPaid: false, nextDueDate: todayStr });
+  };
+
+  const confirmExpensePayment = (method: PaymentMethod) => {
+    if (selectedExpense) {
+      setExpensePaymentToConfirm({ expense: selectedExpense, method });
+      setShowPaymentSelector(false);
+    }
+  };
+
+  const handleFinalExpensePayment = () => {
+    if (expensePaymentToConfirm) {
+      onPayExpense?.(expensePaymentToConfirm.expense.id, expensePaymentToConfirm.method, 1);
+      setExpensePaymentToConfirm(null);
+      setShowExpenseActionModal(false);
+      setSelectedExpense(null);
+    }
+  };
+
+  const handleApptPaymentSelection = (method: PaymentMethod) => {
+    if (selectedAppt) {
+      setApptPaymentToConfirm({ appt: selectedAppt, method });
+      setShowApptPaymentSelector(false);
+    }
+  };
+
+  const handleFinalApptPayment = () => {
+    if (apptPaymentToConfirm && onCompleteAppointment) {
+      onCompleteAppointment(apptPaymentToConfirm.appt.id, apptPaymentToConfirm.method);
+      setApptPaymentToConfirm(null);
+      setSelectedAppt(null);
+    }
   };
 
   const handleContactSupplier = (item: InventoryItem) => {
-    const supplier = suppliers?.find(s => s.id === item.supplierId) || suppliers?.find(s => s.name === item.supplierName);
+    const supplier = suppliers.find(s => s.id === item.supplierId) || suppliers.find(s => s.name === item.supplierName);
     if (supplier) setContactingSupplier({ item, supplier });
-    else alert("Fornecedor não associado a este produto.");
   };
 
-  const openWhatsApp = (phone: string, text: string) => {
-    const cleanPhone = phone.replace(/\D/g, '').startsWith('258') ? phone.replace(/\D/g, '') : `258${phone.replace(/\D/g, '')}`;
-    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
-  };
-
-  const handleRemarcar = (appt: Appointment) => {
-    setShowApptActions(false);
-    navigate('/appointments', { state: { reschedule: appt } }); 
-  };
-
-  const handleFinalConfirm = () => {
-    if (!paymentToConfirm) return;
-    if (paymentToConfirm.type === 'appointment') {
-      onCompleteAppointment?.(paymentToConfirm.id, paymentToConfirm.method);
-    } else if (paymentToConfirm.type === 'expense') {
-      onPayExpense?.(paymentToConfirm.id, paymentToConfirm.method, monthsToPay);
-      setMonthsToPay(1);
-    }
-    setPaymentToConfirm(null);
-    setSelectedAppointment(null);
-    setSelectedExpense(null);
-  };
-
-  const handleAuditClick = (log: AuditLogEntry) => {
-    if (log.action === 'SALE') {
-      const txIdMatch = log.details.match(/#([a-zA-Z0-9-]+)/);
-      if (txIdMatch) {
-        const txId = txIdMatch[1];
-        const group = (sales || []).filter(s => s.transactionId.startsWith(txId) || txId.startsWith(s.transactionId.slice(0,6)));
-        if (group.length > 0) {
-          setViewingReceiptGroup(group);
-          return;
-        }
-      }
-    }
-    setViewingLog(log);
+  const openWhatsApp = (phone: string, itemName: string, supplierName: string) => {
+    const msg = encodeURIComponent(`Olá ${supplierName}, precisamos de reposição urgente do produto: ${itemName}.`);
+    window.open(`https://wa.me/258${phone.replace(/\D/g, '')}?text=${msg}`, '_blank');
+    setContactingSupplier(null);
   };
 
   return (
-    <div className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-10 pb-24 md:pb-10 max-w-[1600px] mx-auto animate-[fadeIn_0.4s_ease-out] bg-slate-50/30">
+    <div className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-8 pb-24 md:pb-10 max-w-[1600px] mx-auto animate-[fadeIn_0.4s_ease-out] bg-slate-50/30 text-gray-900">
       
       {/* Header Premium */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -229,534 +218,517 @@ const Dashboard: React.FC<DashboardProps> = ({
           </p>
         </div>
         <button onClick={() => onCloseRegister?.()} className="bg-slate-900 text-white px-8 py-4 rounded-[1.5rem] font-bold shadow-xl hover:bg-black transition-all flex items-center justify-center active:scale-95 text-xs uppercase tracking-widest">
-          <Receipt size={18} className="mr-3 text-emerald-400" /> Fecho Turno PDF
+          <Receipt size={18} className="mr-3 text-emerald-400" /> Fecho de Caixa
         </button>
       </div>
 
-      {/* Alertas Dinâmicos (Stock e AGENDA) */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {lowStockItems.length > 0 && (
-          <div className="bg-white/60 backdrop-blur-md border border-red-100 rounded-[2.5rem] p-6 shadow-xl flex flex-col gap-5">
-            <div className="flex items-center gap-4">
-              <div className="bg-red-500 p-3 rounded-2xl text-white shadow-lg"><AlertTriangle size={24} /></div>
-              <div><h4 className="text-xl font-black text-slate-800 font-heading">Reposição</h4><p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{lowStockItems.length} urgentes</p></div>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-              {lowStockItems.map(item => (
-                <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex flex-col gap-2 shrink-0 w-40 shadow-sm group hover:border-red-200 transition-all">
-                  <p className="text-xs font-black text-slate-800 truncate">{item.name}</p>
-                  <div className="flex gap-1.5 mt-2">
-                    <button onClick={() => setShowRestockModal(item)} className="flex-1 bg-emerald-50 py-2 rounded-xl text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"><PackagePlus size={14} className="mx-auto" /></button>
-                    <button onClick={() => handleContactSupplier(item)} className="flex-1 bg-blue-50 py-2 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all"><Truck size={14} className="mx-auto" /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white/60 backdrop-blur-md border border-emerald-100 rounded-[2.5rem] p-6 shadow-xl flex flex-col gap-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="bg-emerald-500 p-3 rounded-2xl text-white shadow-lg"><Clock size={24} /></div>
-                <div><h4 className="text-xl font-black text-slate-800 font-heading">Agenda</h4><p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{agendaDay === 'hoje' ? stats.todayAppts.length : stats.tomorrowAppts.length} marcados</p></div>
+      {/* Grade de KPIs Atómicos */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        {/* KPI: Faturação Bruta */}
+        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+           <div>
+              <div className="flex justify-between items-start mb-4">
+                 <div className="p-4 bg-emerald-50 text-emerald-600 rounded-[1.5rem]"><TrendingUp size={24}/></div>
+                 <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Faturação Bruta</span>
               </div>
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                 <button onClick={() => setAgendaDay('hoje')} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${agendaDay === 'hoje' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Hoje</button>
-                 <button onClick={() => setAgendaDay('amanha')} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${agendaDay === 'amanha' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Amanhã</button>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 max-h-[120px] overflow-y-auto custom-scrollbar pr-2">
-              {(agendaDay === 'hoje' ? stats.todayAppts : stats.tomorrowAppts).length > 0 ? (agendaDay === 'hoje' ? stats.todayAppts : stats.tomorrowAppts).map(a => (
-                <div key={a.id} onClick={() => { setSelectedAppointment(a); setShowApptActions(true); }} className="bg-white px-5 py-4 rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm cursor-pointer hover:border-emerald-300 transition-all group active:scale-[0.98]">
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs font-black text-emerald-600 bg-emerald-50 w-12 py-1.5 rounded-xl text-center">{a.time}</span>
-                    <p className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{a.customerName}</p>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-300 group-hover:text-emerald-500 transform transition-all" />
-                </div>
-              )) : <div className="py-6 text-center text-slate-300 font-bold uppercase text-[10px] tracking-widest">Tudo livre</div>}
-            </div>
-        </div>
-
-        <div className="bg-white/60 backdrop-blur-md border border-purple-100 rounded-[2.5rem] p-6 shadow-xl flex flex-col gap-5">
-            <div className="flex items-center gap-4">
-              <div className="bg-purple-600 p-3 rounded-2xl text-white shadow-lg"><Heart size={24} /></div>
-              <div><h4 className="text-xl font-black text-slate-800 font-heading">Fidelização</h4><p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Recuperar clientes</p></div>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-              {stats.absentCustomers.map(c => (
-                <div key={c.id} onClick={() => openWhatsApp(c.phone, `Olá ${c.name}, sentimos a sua falta na ${activeBusinessName}! Temos novidades para si.`)} className="bg-white p-4 rounded-2xl border border-slate-100 flex flex-col gap-2 shrink-0 w-44 shadow-sm cursor-pointer hover:border-purple-300 transition-all group">
-                  <p className="text-xs font-black text-slate-800 truncate">{c.name}</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Última: {new Date(c.lastVisit).toLocaleDateString()}</p>
-                  <div className="mt-1 bg-purple-50 text-purple-600 py-1.5 rounded-lg text-[9px] font-black uppercase text-center flex items-center justify-center gap-1"><MessageCircle size={10}/> Notificar</div>
-                </div>
-              ))}
-            </div>
-        </div>
-      </div>
-
-      {/* KPI Section */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {Object.entries(stats.paymentMethods).map(([method, value]) => (
-          <div key={method} className="bg-white/40 backdrop-blur-sm p-4 rounded-3xl border border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-xl bg-slate-100 text-slate-500`}>
-                {method === 'cash' ? <Wallet size={16} /> : method === 'card' ? <Receipt size={16} /> : <Smartphone size={16} />}
-              </div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{method}</p>
-            </div>
-            <p className="text-sm font-black text-slate-700">{symbol} {value.toLocaleString()}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* KPIs Tradicionais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
-           <div className="flex justify-between items-start mb-6">
-              <div className="p-4 bg-emerald-50 text-emerald-600 rounded-[1.5rem]"><TrendingUp size={24}/></div>
-              <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-full">Faturação</span>
+              <p className="text-5xl font-black font-heading text-slate-900">{symbol} {stats.dailyRevenue.toLocaleString()}</p>
            </div>
-           <p className="text-4xl font-black font-heading text-slate-900">{symbol} {stats.dailyRevenue.toLocaleString()}</p>
-           <div className="flex items-center gap-1.5 mt-4"><ArrowUpRight size={12} className="text-emerald-500" /><span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{stats.salesCount} Vendas Hoje</span></div>
+           <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 block">Canais de Receita</span>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Cash</span><span className="text-sm font-black text-slate-800">{symbol}{stats.channelFlow.cash.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">M-Pesa</span><span className="text-sm font-black text-emerald-600">{symbol}{stats.channelFlow.mpesa.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">E-mola</span><span className="text-sm font-black text-orange-600">{symbol}{stats.channelFlow.emola.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Cartão</span><span className="text-sm font-black text-blue-600">{symbol}{stats.channelFlow.card.toLocaleString()}</span></div>
+              </div>
+           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
-           <div className="flex justify-between items-start mb-6">
+        {/* KPI: Saídas de Caixa */}
+        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+           <div>
+              <div className="flex justify-between items-start mb-4">
+                 <div className="p-4 bg-red-50 text-red-600 rounded-[1.5rem]"><ArrowDownCircle size={24}/></div>
+                 <span className="text-[9px] font-black text-red-600 uppercase tracking-widest">Saídas de Caixa</span>
+              </div>
+              <p className="text-5xl font-black font-heading text-slate-900">{symbol} {stats.dailyOutflows.toLocaleString()}</p>
+           </div>
+           <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 block">Canais de Saída</span>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Cash</span><span className="text-sm font-black text-slate-800">{symbol}{stats.outflowChannelFlow.cash.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">M-Pesa</span><span className="text-sm font-black text-emerald-600">{symbol}{stats.outflowChannelFlow.mpesa.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">E-mola</span><span className="text-sm font-black text-orange-600">{symbol}{stats.outflowChannelFlow.emola.toLocaleString()}</span></div>
+                 <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Cartão</span><span className="text-sm font-black text-blue-600">{symbol}{stats.outflowChannelFlow.card.toLocaleString()}</span></div>
+              </div>
+           </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 group">
+           <div className="flex justify-between items-start mb-4">
               <div className="p-4 bg-indigo-50 text-indigo-600 rounded-[1.5rem]"><Award size={24}/></div>
-              <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1.5 rounded-full">Líder</span>
+              <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Lucro do Dia</span>
            </div>
-           <p className="text-xl font-black text-slate-800 truncate mb-1">{stats.topSalesData[0]?.name || "Nenhuma"}</p>
-           <p className="text-3xl font-black text-indigo-600">{stats.topSalesData[0]?.value || 0} <span className="text-sm font-bold text-slate-300 tracking-normal font-sans">un</span></p>
+           <p className="text-4xl font-black font-heading text-slate-900">{symbol} {stats.dailyProfitRaw.toLocaleString()}</p>
         </div>
 
-        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
-           <div className="flex justify-between items-start mb-6">
-              <div className="p-4 bg-red-50 text-red-600 rounded-[1.5rem]"><ArrowDownCircle size={24}/></div>
-              <span className="text-[9px] font-black text-red-600 uppercase tracking-widest bg-red-50 px-3 py-1.5 rounded-full">Saídas Turno</span>
+        <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 group">
+           <div className="flex justify-between items-start mb-4">
+              <div className="p-4 bg-amber-50 text-amber-600 rounded-[1.5rem]"><Star size={24}/></div>
+              <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Cliente do Dia</span>
            </div>
-           <p className="text-4xl font-black font-heading text-slate-900">{symbol} {stats.dailyOutflows.toLocaleString()}</p>
-           <div className="flex items-center gap-1.5 mt-4"><ArrowDownRight size={12} className="text-red-500" /><span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Turno Atual</span></div>
+           <p className="text-xl font-black text-slate-900 truncate">{stats.customerOfTheDay?.name || '—'}</p>
+           <p className="text-[10px] text-slate-400 font-bold mt-1">{stats.customerOfTheDay ? `${symbol} ${stats.customerOfTheDay.total.toLocaleString()}` : 'Sem registos'}</p>
         </div>
 
-        <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl transition-all hover:bg-black">
-           <div className="flex justify-between items-start mb-6">
-              <div className="p-4 bg-emerald-500 text-white rounded-[1.5rem] shadow-lg shadow-emerald-500/20"><Wallet size={24}/></div>
-              <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Caixa Real</span>
+        <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl group lg:col-span-2">
+           <div className="flex justify-between items-start mb-4">
+              <div className="p-4 bg-emerald-500 text-white rounded-[1.5rem] shadow-lg"><Wallet size={24}/></div>
+              <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Saldo Líquido em Caixa</span>
            </div>
-           <p className="text-4xl font-black font-heading text-white">{symbol} {stats.dailyNetBalance.toLocaleString()}</p>
-           <div className="flex items-center gap-1.5 mt-4 text-emerald-400"><Calculator size={12} /><span className="text-[9px] font-black uppercase tracking-widest">Saldo Líquido</span></div>
+           <p className="text-5xl font-black font-heading text-white">{symbol} {stats.dailyNetBalance.toLocaleString()}</p>
+           <p className="text-[10px] text-emerald-400/60 font-bold uppercase mt-2">Pronto para fecho de turno</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-        {[
-          { label: 'Margem Bruta', value: `${stats.dailyProfitPercent.toFixed(1)}%`, icon: BarChart3, color: 'text-indigo-500' },
-          { label: 'Tkt Médio', value: `${symbol}${stats.avgTicket.toFixed(0)}`, icon: Receipt, color: 'text-emerald-500' },
-          { label: 'Atendimentos', value: stats.todayAppts.length, icon: Calendar, color: 'text-blue-500' },
-          { label: 'Clientes Reais', value: stats.customersUnique, icon: Users, color: 'text-purple-500' }
-        ].map((kpi, i) => (
-          <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 flex items-center gap-4 shadow-sm">
-            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center shrink-0"><kpi.icon size={18} className={kpi.color} /></div>
-            <div className="min-w-0"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">{kpi.label}</p><p className="text-lg font-black text-slate-800 truncate">{kpi.value}</p></div>
-          </div>
-        ))}
-      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* Alerta de Stock com Contacto */}
+        <div className="bg-white/60 backdrop-blur-md border border-slate-100 rounded-[2.5rem] p-8 shadow-xl flex flex-col h-[520px]">
+           <div className="flex items-center gap-4 mb-6">
+              <div className="bg-red-500 p-3 rounded-2xl text-white shadow-lg"><AlertTriangle size={24} /></div>
+              <div><h4 className="text-xl font-black text-slate-800 font-heading">Reposição</h4><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{lowStockItems.length} alertas ativos</p></div>
+           </div>
+           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
+              {lowStockItems.length > 0 ? lowStockItems.map(item => (
+                <div key={item.id} className="bg-white p-5 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm hover:border-red-200 transition-all group">
+                   <div className="min-w-0 flex-1">
+                      <p className="font-black text-slate-800 text-sm truncate">{item.name}</p>
+                      <p className="text-[10px] font-bold text-red-500 uppercase mt-1">Stock: {item.quantity} {item.unit}</p>
+                   </div>
+                   <div className="flex gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                      <button onClick={() => setShowRestockModal(item)} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><PackagePlus size={18}/></button>
+                      <button onClick={() => handleContactSupplier(item)} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"><Phone size={18}/></button>
+                   </div>
+                </div>
+              )) : <div className="h-full flex flex-col items-center justify-center opacity-30"><CheckCircle size={48} className="mb-2"/><p className="text-[10px] font-black uppercase tracking-widest">Stock em dia</p></div>}
+           </div>
+        </div>
 
-      {/* Gráfico Dinâmico */}
-      <div className="bg-white p-8 md:p-12 rounded-[4rem] shadow-sm border border-slate-50 h-[500px] flex flex-col">
-        <div className="mb-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-           <div><h3 className="text-2xl font-black text-slate-900 font-heading">Performance do Dia</h3></div>
-           <div className="flex flex-wrap items-center gap-4">
-              <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
-                <button onClick={() => setChartMetric('revenue')} className={`px-5 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${chartMetric === 'revenue' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Faturação</button>
-                <button onClick={() => setChartMetric('quantity')} className={`px-5 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${chartMetric === 'quantity' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Volume</button>
+        {/* CRM / Agenda com Ações Contextuais */}
+        <div className="bg-white/60 backdrop-blur-md border border-slate-100 rounded-[2.5rem] p-8 shadow-xl flex flex-col h-[520px]">
+           <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                 <div className="bg-purple-600 p-3 rounded-2xl text-white shadow-lg"><Users size={24} /></div>
+                 <div><h4 className="text-xl font-black text-slate-800 font-heading">Agenda CRM</h4><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{agendaTab === 'today' ? stats.todayAppts.length : stats.tomorrowAppts.length} marcações</p></div>
               </div>
            </div>
+
+           <div className="flex bg-slate-100 p-1 rounded-xl mb-6 shadow-inner">
+              <button onClick={() => setAgendaTab('today')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${agendaTab === 'today' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-400'}`}>Hoje</button>
+              <button onClick={() => setAgendaTab('tomorrow')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${agendaTab === 'tomorrow' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-400'}`}>Amanhã</button>
+           </div>
+
+           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
+              {(agendaTab === 'today' ? stats.todayAppts : stats.tomorrowAppts).length > 0 ? (
+                (agendaTab === 'today' ? stats.todayAppts : stats.tomorrowAppts).map(a => (
+                  <div key={a.id} onClick={() => setSelectedAppt(a)} className="bg-white p-5 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-purple-300 transition-all group">
+                     <div className="flex items-center gap-4">
+                        <span className="text-xs font-black text-purple-600 bg-purple-50 w-12 py-2 rounded-xl text-center group-hover:bg-purple-600 group-hover:text-white transition-all">{a.time}</span>
+                        <div className="min-w-0">
+                           <p className="text-sm font-bold text-slate-700 truncate">{a.customerName}</p>
+                           <p className={`text-[9px] font-black uppercase ${a.status === 'confirmed' ? 'text-emerald-500' : 'text-blue-500'}`}>{a.status === 'confirmed' ? 'Confirmado' : 'Agendado'}</p>
+                        </div>
+                     </div>
+                     <ChevronRight size={16} className="text-slate-200" />
+                  </div>
+                ))
+              ) : <div className="h-full flex flex-col items-center justify-center opacity-30"><Calendar size={48} className="text-slate-200 mb-2" /><p className="text-[10px] font-black uppercase">Sem agendamentos</p></div>}
+           </div>
         </div>
-        <div className="flex-1 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={stats.hourlyFlowData}>
-              <defs><linearGradient id="colorFlow" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: '800', fill: '#94a3b8'}} />
-              <YAxis hide />
-              <Tooltip contentStyle={{borderRadius: '1.5rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)', fontWeight: 'bold'}} />
-              <Area type="monotone" dataKey="total" name={chartMetric === 'revenue' ? 'Valor' : 'Qtd'} stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorFlow)" />
-            </AreaChart>
-          </ResponsiveContainer>
+
+        {/* Top 5 Performance */}
+        <div className="bg-white/60 backdrop-blur-md border border-slate-100 rounded-[2.5rem] p-8 shadow-xl flex flex-col h-[520px]">
+           <div className="flex items-center gap-4 mb-6">
+              <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg"><BarChart3 size={24} /></div>
+              <div><h4 className="text-xl font-black text-slate-800 font-heading">Top 5</h4><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Mais Rentáveis Hoje</p></div>
+           </div>
+           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8">
+              <section>
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 block">Produtos Líderes</span>
+                 <div className="space-y-3">
+                    {stats.topProducts.map((p, i) => (
+                       <div key={i} className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-50 shadow-sm">
+                          <div className="flex items-center gap-3">
+                             <span className="w-6 h-6 bg-slate-100 text-[10px] font-black flex items-center justify-center rounded-lg text-slate-400">{i+1}</span>
+                             <p className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{p.name}</p>
+                          </div>
+                          <span className="text-xs font-black text-emerald-600">{symbol} {p.revenue.toLocaleString()}</span>
+                       </div>
+                    ))}
+                    {stats.topProducts.length === 0 && <p className="text-[10px] text-slate-300 italic text-center py-4">Sem vendas de produtos</p>}
+                 </div>
+              </section>
+              <section>
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 block">Serviços Procura</span>
+                 <div className="space-y-3">
+                    {stats.topServices.map((p, i) => (
+                       <div key={i} className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-50 shadow-sm">
+                          <div className="flex items-center gap-3">
+                             <span className="w-6 h-6 bg-indigo-50 text-[10px] font-black flex items-center justify-center rounded-lg text-indigo-400">{i+1}</span>
+                             <p className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{p.name}</p>
+                          </div>
+                          <span className="text-xs font-black text-indigo-600">{symbol} {p.revenue.toLocaleString()}</span>
+                       </div>
+                    ))}
+                    {stats.topServices.length === 0 && <p className="text-[10px] text-slate-300 italic text-center py-4">Sem vendas de serviços</p>}
+                 </div>
+              </section>
+           </div>
         </div>
       </div>
 
-      {/* Listas Inferiores */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        <div className="bg-white rounded-[4rem] border border-slate-50 shadow-sm overflow-hidden flex flex-col h-[500px]">
-           <div className="p-10 pb-4 flex justify-between items-center">
-              <div><h3 className="text-2xl font-black text-slate-800 font-heading">Controlo de Saídas</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fluxo de Caixa</p></div>
-              <button onClick={() => setShowExpenseForm(true)} className="bg-red-500 text-white p-4 rounded-2xl shadow-xl active:scale-95 transition-all hover:bg-red-600"><Plus size={24} /></button>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Gestão de Saídas / Despesas */}
+        <div className="bg-white/60 backdrop-blur-md border border-slate-100 rounded-[2.5rem] p-8 shadow-xl flex flex-col h-[520px]">
+           <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-4">
+                 <div className="bg-red-600 p-3 rounded-2xl text-white shadow-lg"><Calculator size={24} /></div>
+                 <div><h4 className="text-xl font-black text-slate-800 font-heading">Saídas</h4><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Fluxo do Dia</p></div>
+              </div>
+              <button onClick={() => setShowExpenseForm(true)} className="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm"><Plus size={20}/></button>
            </div>
-           <div className="flex-1 overflow-y-auto px-10 space-y-3 custom-scrollbar pb-6">
-              {(stats.visibleExpenses || []).length > 0 ? stats.visibleExpenses.map(exp => (
-                <div key={exp.id} onClick={() => { setSelectedExpense(exp); setShowExpenseActionModal(true); }} className={`p-5 rounded-3xl border transition-all flex justify-between items-center cursor-pointer ${exp.isPaid ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100 hover:border-red-200 shadow-sm'}`}>
-                  <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-xl ${exp.isPaid ? 'bg-white text-emerald-600' : 'bg-slate-50 text-slate-300'}`}>{exp.isPaid ? <CheckCircle size={18}/> : <Clock size={18}/>}</div>
-                    <div><p className="font-black text-slate-800 text-sm">{exp.name}</p><p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{exp.isPaid ? 'PAGO' : `Vence: ${formatDateTime(exp.nextDueDate).date}`}</p></div>
-                  </div>
-                  <div className="text-right"><p className="font-black text-slate-900 text-base">{symbol}{exp.amount.toLocaleString()}</p></div>
-                </div>
-              )) : <div className="text-center py-20 opacity-20"><Receipt size={60} className="mx-auto" /></div>}
+           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
+              {stats.allExpenses.map(e => {
+                 const isPaidToday = e.isPaid && e.lastPaidDate?.startsWith(todayStr);
+                 return (
+                    <div 
+                      key={e.id} 
+                      onClick={() => { if(!isPaidToday) { setSelectedExpense(e); setShowExpenseActionModal(true); } }} 
+                      className={`p-5 rounded-3xl border flex items-center justify-between shadow-sm transition-all ${isPaidToday ? 'bg-emerald-50 border-emerald-100 opacity-80 cursor-not-allowed' : 'bg-white border-slate-100 cursor-pointer hover:border-red-300'}`}
+                    >
+                       <div className="min-w-0 flex-1">
+                          <p className={`font-black text-sm truncate ${isPaidToday ? 'text-emerald-700' : 'text-slate-800'}`}>{e.name}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                             <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md ${e.type === 'fixed' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'}`}>{e.type === 'fixed' ? 'FIXA' : 'PONTUAL'}</span>
+                             {isPaidToday && <span className="text-[9px] font-black text-emerald-600 flex items-center gap-1"><CheckCircle size={10} /> JÁ PAGO HOJE</span>}
+                             {!isPaidToday && !e.isPaid && <span className="text-[9px] font-black text-red-500">PENDENTE</span>}
+                          </div>
+                       </div>
+                       <p className={`text-sm font-black ml-4 shrink-0 ${isPaidToday ? 'text-emerald-600' : 'text-slate-900'}`}>{symbol} {e.amount.toLocaleString()}</p>
+                    </div>
+                 );
+              })}
            </div>
         </div>
 
-        <div className="bg-white p-10 rounded-[4rem] shadow-sm border border-slate-50 flex flex-col h-[500px]">
-           <div className="flex items-center space-x-3 mb-6 bg-slate-100 p-1.5 rounded-[2rem] w-fit mx-auto">
-             <button onClick={() => setRightPanelTab('sales')} className={`px-8 py-2.5 text-[10px] font-black uppercase transition-all rounded-[1.8rem] ${rightPanelTab === 'sales' ? 'bg-white text-slate-800 shadow-lg' : 'text-slate-400'}`}>Vendas</button>
-             <button onClick={() => setRightPanelTab('audit')} className={`px-8 py-2.5 text-[10px] font-black uppercase transition-all rounded-[1.8rem] ${rightPanelTab === 'audit' ? 'bg-white text-indigo-600 shadow-lg' : 'text-slate-400'}`}>Auditoria</button>
+        {/* Auditoria / Histórico de Vendas */}
+        <div className="bg-white/60 backdrop-blur-md border border-slate-100 rounded-[3rem] p-8 shadow-sm flex flex-col h-[520px]">
+           <div className="flex border-b border-slate-100 mb-6 gap-8">
+              <button onClick={() => setRightPanelTab('sales')} className={`pb-4 text-xs font-black uppercase tracking-widest transition-all relative ${rightPanelTab === 'sales' ? 'text-slate-900 border-b-4 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>Vendas Diárias</button>
+              <button onClick={() => setRightPanelTab('audit')} className={`pb-4 text-xs font-black uppercase tracking-widest transition-all relative ${rightPanelTab === 'audit' ? 'text-slate-900 border-b-4 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>Auditoria de Fluxo</button>
            </div>
-           <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
+           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
               {rightPanelTab === 'sales' ? (
-                stats.groupedSales.map(group => {
-                  const s = group[0];
-                  const totalVal = group.reduce((acc, item) => acc + (Number(item.totalRevenue) * rate), 0);
-                  return (
-                    <div key={s.transactionId} onClick={() => setViewingReceiptGroup(group)} className="flex justify-between items-center p-5 rounded-3xl bg-slate-50/30 border border-slate-50 hover:bg-white hover:shadow-lg transition-all cursor-pointer group">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-emerald-500 shrink-0"><ShoppingBag size={18} /></div>
-                        <div><p className="font-black text-slate-800 text-xs truncate max-w-[120px]">{group.length > 1 ? `${s.itemName} +${group.length - 1}` : s.itemName}</p><p className="text-[9px] font-bold text-slate-400 uppercase">{s.paymentMethod}</p></div>
-                      </div>
-                      <div className="text-right"><p className="font-black text-slate-900 text-sm">{symbol}{totalVal.toLocaleString()}</p><p className="text-[9px] text-slate-300 font-bold uppercase">{formatDateTime(s.date).time}</p></div>
-                    </div>
-                  );
-                })
+                stats.groupedSales.map((group, idx) => (
+                  <div key={idx} onClick={() => setViewingReceiptGroup(group)} className="bg-white p-5 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm cursor-pointer hover:border-slate-300 transition-all group">
+                     <div className="flex items-center gap-4">
+                        <div className="p-3 bg-slate-50 text-slate-400 rounded-2xl group-hover:bg-slate-900 group-hover:text-white transition-all"><Receipt size={20}/></div>
+                        <div>
+                           <p className="font-black text-slate-800 text-sm">TX #{group[0].transactionId.slice(0,8)}</p>
+                           <p className="text-[10px] font-bold text-slate-400 uppercase">{formatDateTime(group[0].date).time} • {group[0].paymentMethod}</p>
+                        </div>
+                     </div>
+                     <p className="font-black text-slate-900 text-sm">{symbol} {group.reduce((acc, s) => acc + (Number(s.totalRevenue) * rate), 0).toLocaleString()}</p>
+                  </div>
+                ))
               ) : (
-                (logs || []).map(l => (
-                   <div key={l.id} onClick={() => handleAuditClick(l)} className="p-5 rounded-2xl bg-slate-50/30 border border-slate-100 text-[10px] hover:bg-white transition-all cursor-pointer relative">
-                      <div className="flex justify-between mb-1"><span className={`font-black uppercase ${l.action === 'SALE' ? 'text-emerald-600' : 'text-indigo-600'}`}>{l.action}</span><span className="text-slate-400 font-bold">{formatDateTime(l.timestamp).time}</span></div>
-                      <p className="text-slate-600 font-bold leading-relaxed truncate">{l.details}</p>
-                      {l.action === 'SALE' && <div className="absolute top-2 right-2 p-1 bg-emerald-100 text-emerald-600 rounded-lg"><Receipt size={10} /></div>}
-                   </div>
+                (logs || []).slice(0, 50).map(log => (
+                  <div key={log.id} onClick={() => setViewingLog(log)} className="bg-white p-5 rounded-3xl border border-slate-100 flex items-center gap-4 shadow-sm cursor-pointer hover:border-blue-200 transition-all">
+                     <div className={`p-3 rounded-2xl ${log.action === 'SALE' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}><Activity size={18}/></div>
+                     <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-slate-800 truncate">{log.details}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{formatDateTime(log.timestamp).time}</p>
+                     </div>
+                     <ChevronRight size={16} className="text-slate-200" />
+                  </div>
                 ))
               )}
            </div>
         </div>
       </div>
 
-      {/* MODAL GESTÃO AGENDAMENTO */}
-      {showApptActions && selectedAppointment && (
-         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
-               <div className="p-8 bg-emerald-600 text-white text-center">
-                  <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm shadow-inner"><User size={40} /></div>
-                  <h3 className="font-black text-2xl font-heading tracking-tight">{selectedAppointment.customerName}</h3>
-                  <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-widest mt-1">{selectedAppointment.time}h • {selectedAppointment.serviceNames?.join(', ')}</p>
-               </div>
-               <div className="p-6 space-y-3">
-                  {(agendaDay === 'hoje' || selectedAppointment.status === 'confirmed') ? (
-                     <button onClick={() => { setShowApptActions(false); }} className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all text-xs uppercase tracking-widest"><Receipt size={20} className="text-emerald-400" /> Cobrar Atendimento</button>
-                  ) : (
-                     <button onClick={() => { 
-                        if(window.confirm('Confirmar esta marcação?')) {
-                          onUpdateAppointmentStatus?.(selectedAppointment.id, 'confirmed'); 
-                          setShowApptActions(false); 
-                        }
-                     }} className="w-full py-5 bg-emerald-50 text-emerald-600 font-black rounded-2xl border border-emerald-100 flex items-center justify-center gap-3 active:scale-95 transition-all text-xs uppercase tracking-widest"><Check size={20} /> Confirmar Marcação</button>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                     <button onClick={() => handleRemarcar(selectedAppointment)} className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest border border-slate-200"><CalendarDays size={18}/> Remarcar</button>
-                     <button onClick={() => { 
-                        if(window.confirm('Tem a certeza que deseja cancelar?')) {
-                          onUpdateAppointmentStatus?.(selectedAppointment.id, 'cancelled'); 
-                          setShowApptActions(false); 
-                        }
-                     }} className="w-full py-4 bg-red-50 text-red-600 font-black rounded-2xl flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest border border-red-100"><X size={18}/> Cancelar</button>
-                  </div>
-                  <button onClick={() => { setSelectedAppointment(null); setShowApptActions(false); }} className="w-full py-3 text-slate-300 font-black text-[10px] uppercase tracking-widest mt-2 hover:text-slate-500">Voltar</button>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {/* SELEÇÃO DE PAGAMENTO PARA AGENDAMENTO */}
-      {selectedAppointment && !showApptActions && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-               <div className="p-8 bg-purple-600 text-white text-center">
-                  <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm"><Receipt size={32} /></div>
-                  <h3 className="font-black text-xl font-heading">Finalizar Atendimento</h3>
-                  <p className="text-purple-100 text-sm mt-1">{selectedAppointment.customerName}</p>
-                  <p className="text-3xl font-black mt-4">MT {selectedAppointment.totalAmount?.toFixed(0)}</p>
-               </div>
-               <div className="p-8 grid grid-cols-2 gap-4 bg-gray-50">
-                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
-                    <button key={m} onClick={() => { setPaymentToConfirm({ id: selectedAppointment.id, method: m as PaymentMethod, type: 'appointment' }); }} className="flex flex-col items-center justify-center p-6 bg-white hover:bg-emerald-600 hover:text-white rounded-[2rem] border border-slate-100 shadow-sm transition-all group active:scale-90">
-                       {m === 'cash' ? <Wallet size={24} className="group-hover:text-white text-slate-300 mb-2"/> : <Smartphone size={24} className="group-hover:text-white text-slate-300 mb-2"/>}
-                       <span className="text-[10px] font-black uppercase tracking-widest">{m}</span>
-                    </button>
-                  ))}
-               </div>
-               <button onClick={() => setSelectedAppointment(null)} className="w-full py-5 text-slate-400 font-black text-[10px] uppercase tracking-[0.4em] bg-white border-t">Cancelar</button>
-            </div>
-        </div>
-      )}
-
-      {/* MODAL GESTÃO DESPESA / SAÍDA */}
-      {showExpenseActionModal && selectedExpense && !selectedExpense.isPaid && (
-         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl animate-[scaleIn_0.2s]">
-               <div className="bg-red-50 p-4 rounded-3xl text-red-600 w-fit mx-auto mb-6"><Receipt size={32} /></div>
-               <h3 className="text-xl font-black text-slate-900 font-heading">{selectedExpense.name}</h3>
-               <p className="text-3xl font-black text-red-600 mt-2">{symbol}{selectedExpense.amount.toLocaleString()}</p>
-               <div className="grid grid-cols-1 gap-3 mt-8">
-                  <button onClick={() => setShowPaymentSelector(true)} className="w-full py-5 bg-emerald-600 text-white font-black rounded-2xl shadow-xl hover:bg-emerald-700 active:scale-95 transition-all text-xs uppercase tracking-widest">Efetuar Pagamento</button>
-                  <button onClick={() => { 
-                    if(window.confirm('Eliminar registo?')) {
-                      onDeleteExpense?.(selectedExpense.id); 
-                      setShowExpenseActionModal(false); 
-                    }
-                  }} className="w-full py-4 bg-red-50 text-red-600 font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:bg-red-100 transition-all">Remover Registo</button>
-                  <button onClick={() => setShowExpenseActionModal(false)} className="py-3 text-slate-300 font-black text-[10px] uppercase tracking-widest mt-2 hover:text-slate-500">Voltar</button>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {/* COMPROVATIVO DE SAÍDA PAGA */}
-      {showExpenseActionModal && selectedExpense && selectedExpense.isPaid && (
-         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
-               <div className="p-8 bg-emerald-600 text-white flex justify-between items-center">
-                  <div><h3 className="font-black text-xl font-heading tracking-tight">Recibo de Saída</h3><p className="text-[9px] font-bold uppercase tracking-widest text-emerald-100">Transação Liquidada</p></div>
-                  <CheckCircle size={28} className="text-white/40" />
-               </div>
-               <div className="p-10 space-y-6">
-                  <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 shadow-inner">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Identificação</p>
-                     <h4 className="text-xl font-black text-slate-900">{selectedExpense.name}</h4>
-                     <div className="mt-4 pt-4 border-t border-dashed border-slate-200 space-y-2">
-                        <div className="flex justify-between text-xs font-bold text-slate-500"><span>Valor Pago:</span><span className="text-slate-900 font-black">{symbol} {selectedExpense.amount.toLocaleString()}</span></div>
-                        <div className="flex justify-between text-xs font-bold text-slate-500"><span>Data:</span><span className="text-slate-900">{selectedExpense.lastPaidDate ? formatDateTime(selectedExpense.lastPaidDate).date : '-'}</span></div>
-                        <div className="flex justify-between text-xs font-bold text-slate-500"><span>Canal:</span><span className="text-slate-900 uppercase">{selectedExpense.paymentMethod || 'cash'}</span></div>
-                        <div className="flex justify-between text-xs font-bold text-slate-500"><span>Responsável:</span><span className="text-slate-900 font-black">{selectedExpense.operatorName || 'Administrador'}</span></div>
-                     </div>
-                  </div>
-                  <button onClick={() => setShowExpenseActionModal(false)} className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-xl uppercase text-[10px] tracking-widest active:scale-95 transition-all">Fechar Documento</button>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {/* SELETOR DE CANAL DE PAGAMENTO PARA SAÍDA */}
-      {showPaymentSelector && selectedExpense && (
-         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 p-4 animate-[fadeIn_0.2s]">
-            <div className="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl animate-[scaleIn_0.2s]">
-               <h3 className="text-xl font-black text-slate-900 mb-6 font-heading uppercase tracking-tight">Canal de Pagamento</h3>
-               {selectedExpense.type === 'fixed' && (
-                  <div className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-100 shadow-inner">
-                     <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Meses a Liquidar</p>
-                     <div className="flex items-center justify-center gap-6">
-                        <button onClick={() => setMonthsToPay(Math.max(1, monthsToPay-1))} className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-slate-400 border hover:text-emerald-600 transition-colors"><Minus size={16} /></button>
-                        <span className="text-4xl font-black text-slate-900 w-12">{monthsToPay}</span>
-                        <button onClick={() => setMonthsToPay(Math.min(12, monthsToPay+1))} className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-slate-400 border hover:text-emerald-600 transition-colors"><Plus size={16} /></button>
-                     </div>
-                     <p className="text-[10px] font-bold text-emerald-600 mt-4 uppercase tracking-wider">Total: {symbol}{(selectedExpense.amount * monthsToPay).toLocaleString()}</p>
-                  </div>
-               )}
-               <div className="grid grid-cols-2 gap-4">
-                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
-                    <button key={m} onClick={() => {
-                        setPaymentToConfirm({ id: selectedExpense.id, method: m as PaymentMethod, type: 'expense' });
-                    }} className="flex flex-col items-center justify-center p-6 bg-slate-50 hover:bg-emerald-600 hover:text-white rounded-[2rem] transition-all group border border-slate-100 shadow-inner active:scale-90">
-                       {m === 'cash' ? <Wallet size={24} /> : <Smartphone size={24} />}
-                       <span className="text-[10px] font-black uppercase mt-2">{m}</span>
-                    </button>
-                  ))}
-               </div>
-               <button onClick={() => { setShowPaymentSelector(false); setMonthsToPay(1); }} className="w-full py-5 text-slate-400 font-bold mt-6 text-xs uppercase tracking-widest">Voltar</button>
-            </div>
-         </div>
-      )}
-
-      {/* CONFIRMAÇÃO FINAL PADRONIZADA */}
-      {paymentToConfirm && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-           <div className="bg-white w-full max-w-xs rounded-[2.5rem] shadow-2xl p-8 text-center animate-[scaleIn_0.2s]">
-              <div className="bg-emerald-50 text-emerald-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle size={32} /></div>
-              <h3 className="text-lg font-black text-slate-800">Confirmar Operação?</h3>
-              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Confirmar o {paymentToConfirm.type === 'expense' ? 'pagamento' : 'recebimento'} via 
-                <span className="font-black uppercase text-emerald-600 ml-1">{paymentToConfirm.method}</span>?
-              </p>
-              <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                 Registado por: {currentOperator}<br/>
-                 {formatDateTime(new Date().toISOString()).full}
-              </div>
-              <div className="grid grid-cols-2 gap-3 mt-8">
-                 <button onClick={() => setPaymentToConfirm(null)} className="py-3 bg-slate-100 text-slate-500 font-bold rounded-xl text-[10px] uppercase transition-all">Voltar</button>
-                 <button onClick={handleFinalConfirm} className="py-3 bg-emerald-600 text-white font-black rounded-xl text-[10px] uppercase shadow-lg shadow-emerald-200 transition-all hover:bg-emerald-700">Confirmar</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* RECIBO VENDAS / AUDITORIA DETALHADO */}
-      {viewingReceiptGroup && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
-              <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
-                 <div><h3 className="font-black text-xl font-heading tracking-tight">Recibo de Venda</h3><p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">TX: #{viewingReceiptGroup[0].transactionId.slice(0,8)}</p></div>
-                 <button onClick={() => setViewingReceiptGroup(null)} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all"><X size={20}/></button>
-              </div>
-              <div className="p-8 space-y-4">
-                 <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 shadow-inner">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Itens da Transação</p>
-                    <div className="space-y-3 max-h-40 overflow-y-auto custom-scrollbar pr-1 mb-4">
-                       {viewingReceiptGroup.map((item, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-xs font-bold text-slate-700">
-                             <div className="min-w-0 flex-1">
-                                <p className="truncate">{item.itemName}</p>
-                                <span className="text-[9px] text-slate-400 font-black uppercase">{item.quantity}x {item.itemSize}{item.itemUnit}</span>
-                             </div>
-                             <span className="ml-3 text-slate-900 font-black">{symbol}{(Number(item.totalRevenue) * rate).toLocaleString()}</span>
-                          </div>
-                       ))}
-                    </div>
-                    <div className="border-t border-dashed border-slate-200 pt-4 space-y-2">
-                       <div className="flex justify-between text-[10px] font-black uppercase">
-                          <span className="text-slate-400">Operador:</span>
-                          <span className="text-slate-900 font-black">{viewingReceiptGroup[0].operatorName}</span>
-                       </div>
-                       <div className="flex justify-between text-[10px] font-black uppercase">
-                          <span className="text-slate-400">Data/Hora:</span>
-                          <span className="text-slate-900">{formatDateTime(viewingReceiptGroup[0].date).full}</span>
-                       </div>
-                       {viewingReceiptGroup[0].customerName && (
-                          <div className="flex justify-between text-[10px] font-black uppercase">
-                             <span className="text-slate-400">Cliente:</span>
-                             <span className="text-purple-600 font-black">{viewingReceiptGroup[0].customerName}</span>
-                          </div>
-                       )}
-                    </div>
-                 </div>
-                 <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100"><p className="text-[9px] font-black text-emerald-600 uppercase">Total Geral</p><p className="text-xl font-black text-emerald-700">{symbol} {viewingReceiptGroup.reduce((acc, i) => acc + (Number(i.totalRevenue) * rate), 0).toLocaleString()}</p></div>
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase">Canal</p><p className="text-xs font-black text-slate-800 uppercase mt-1">{viewingReceiptGroup[0].paymentMethod}</p></div>
-                 </div>
-                 <button onClick={() => setViewingReceiptGroup(null)} className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl text-[10px] uppercase tracking-widest font-sans transition-all hover:bg-slate-200">Fechar Documento</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL AUDITORIA LOG DETALHADO */}
-      {viewingLog && (
-        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
-              <div className="p-8 bg-indigo-600 text-white flex justify-between items-center">
-                 <div><h3 className="font-black text-xl font-heading tracking-tight">Log de Auditoria</h3><p className="text-[9px] font-bold uppercase tracking-widest text-indigo-200">ID: #{viewingLog.id.slice(0,8)}</p></div>
-                 <button onClick={() => setViewingLog(null)} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all"><X size={20}/></button>
-              </div>
-              <div className="p-8 space-y-6">
-                 <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 shadow-inner">
-                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">Descrição da Operação</p>
-                    <p className="text-xs font-bold text-slate-700 leading-relaxed italic">"{viewingLog.details}"</p>
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase">Responsável</p><p className="text-[10px] font-black text-slate-800 mt-1 leading-tight uppercase">{viewingLog.operatorName}</p></div>
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-[9px] font-black text-slate-400 uppercase">Momento</p><p className="text-[10px] font-black text-slate-800 mt-1 leading-tight">{formatDateTime(viewingLog.timestamp).full}</p></div>
-                 </div>
-                 <button onClick={() => setViewingLog(null)} className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl text-[10px] uppercase tracking-widest font-sans transition-all hover:bg-slate-200">Sair</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* FORMULÁRIO DE NOVA SAÍDA */}
-      {showExpenseForm && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
-              <div className="p-8 bg-red-600 text-white flex justify-between items-center">
-                 <div><h3 className="font-black text-xl font-heading tracking-tight">Nova Saída</h3><p className="text-[9px] font-bold uppercase tracking-widest text-red-100">Registo de Despesa</p></div>
-                 <button onClick={() => setShowExpenseForm(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24}/></button>
-              </div>
-              <form onSubmit={handleSaveExpense} className="p-8 space-y-6 bg-white">
-                 <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Descrição</label><input required className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold outline-none focus:ring-2 focus:ring-red-500 text-gray-900" value={newExpense.name} onChange={e => setNewExpense({...newExpense, name: e.target.value})} placeholder="Ex: Renda da Loja" /></div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Valor (MT)</label><input type="number" required className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold outline-none focus:ring-2 focus:ring-red-500 text-gray-900" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: Number(e.target.value)})} /></div>
-                    <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tipo</label><select className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold outline-none focus:ring-2 focus:ring-red-500 appearance-none text-gray-900" value={newExpense.type} onChange={e => setNewExpense({...newExpense, type: e.target.value as any})}>
-                       <option value="variable">Variável</option>
-                       <option value="fixed">Fixa (Mensal)</option>
-                    </select></div>
-                 </div>
-                 {newExpense.type === 'fixed' ? (
-                   <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Dia do Pagamento</label><input type="number" min="1" max="31" className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold outline-none focus:ring-2 focus:ring-red-500 text-gray-900" value={newExpense.paymentDay} onChange={e => setNewExpense({...newExpense, paymentDay: Number(e.target.value)})} /></div>
-                 ) : (
-                   <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Data Limite</label><input type="date" className="w-full p-4 bg-slate-50 border-none rounded-2xl font-bold outline-none focus:ring-2 focus:ring-red-500 text-gray-900" value={newExpense.nextDueDate} onChange={e => setNewExpense({...newExpense, nextDueDate: e.target.value})} /></div>
-                 )}
-                 <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl shadow-xl uppercase text-xs tracking-widest active:scale-95 transition-all">Guardar Saída</button>
-              </form>
-           </div>
-        </div>
-      )}
-
-      {/* REPOSIÇÃO STOCK MODAL */}
+      {/* MODAL REPOSIÇÃO */}
       {showRestockModal && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 animate-[fadeIn_0.2s]">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 animate-[fadeIn_0.2s]">
            <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-xs text-center animate-[scaleIn_0.2s]">
               <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner"><PackagePlus size={36}/></div>
               <h3 className="text-xl font-black text-slate-900 font-heading truncate">{showRestockModal.name}</h3>
-              <div className="my-10">
-                 <div className="flex items-center justify-center gap-6">
-                    <button onClick={() => setRestockQty(Math.max(1, restockQty - 1))} className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 shadow-inner hover:text-emerald-600 transition-colors"><Minus size={18} /></button>
-                    <span className="text-5xl font-black text-slate-900 w-20">{restockQty}</span>
-                    <button onClick={() => setRestockQty(restockQty + 1)} className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 shadow-inner hover:text-emerald-600 transition-colors"><Plus size={18}/></button>
-                 </div>
+              <div className="my-10 flex items-center justify-center gap-6">
+                 <button onClick={() => setRestockQty(Math.max(1, restockQty - 1))} className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 shadow-inner hover:text-emerald-600 transition-colors"><Minus size={18} /></button>
+                 <span className="text-5xl font-black text-slate-900 w-20">{restockQty}</span>
+                 <button onClick={() => setRestockQty(restockQty + 1)} className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 shadow-inner hover:text-emerald-600 transition-colors"><Plus size={18}/></button>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                 <button onClick={() => { setShowRestockModal(null); setRestockQty(10); }} className="py-4 bg-slate-50 text-slate-400 font-black rounded-2xl text-[10px] uppercase font-sans">Sair</button>
-                 <button onClick={() => { 
-                    if(window.confirm('Confirmar reposição de stock?')) {
-                      onRestock?.(showRestockModal.id, restockQty); 
-                      setShowRestockModal(null); 
-                      setRestockQty(10);
-                    }
-                 }} className="py-4 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase shadow-xl font-sans">Repor</button>
+                 <button onClick={() => setShowRestockModal(null)} className="py-4 bg-slate-50 text-slate-400 font-black rounded-2xl text-[10px] uppercase">Sair</button>
+                 <button onClick={() => { onRestock?.(showRestockModal.id, restockQty); setShowRestockModal(null); }} className="py-4 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase shadow-xl">Repor</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* CONTACTAR FORNECEDOR MODAL */}
+      {/* MODAL SELETOR DE CONTACTO FORNECEDOR */}
       {contactingSupplier && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-[fadeIn_0.2s]">
            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
               <div className="p-8 text-center bg-slate-50 border-b border-slate-100">
                  <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><Truck size={32} /></div>
                  <h3 className="text-xl font-black text-slate-800 font-heading">Contactar Fornecedor</h3>
                  <p className="text-sm text-slate-500 mt-1">{contactingSupplier.supplier.name}</p>
-                 <div className="mt-4 bg-white p-3 rounded-2xl border border-slate-200 inline-block">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Produto em falta</p>
-                    <p className="text-xs font-bold text-slate-700">{contactingSupplier.item.name}</p>
-                 </div>
               </div>
               <div className="p-6 space-y-3">
                  <a 
                     href={`tel:${contactingSupplier.supplier.phone.replace(/\D/g, '')}`}
-                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-blue-700 transition-all active:scale-95 shadow-lg uppercase text-[10px] tracking-widest font-sans"
+                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-blue-700 transition-all active:scale-95 shadow-lg shadow-blue-100"
                  >
                     <Phone size={20} /> Ligar Agora
                  </a>
                  <button 
-                    onClick={() => {
-                      const msg = encodeURIComponent(`Olá ${contactingSupplier.supplier.name}, contactamos para reposição do produto ${contactingSupplier.item.name} na ${activeBusinessName}.`);
-                      window.open(`https://wa.me/${contactingSupplier.supplier.phone.replace(/\D/g, '')}?text=${msg}`, '_blank');
-                      setContactingSupplier(null);
-                    }}
-                    className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all active:scale-95 shadow-lg uppercase text-[10px] tracking-widest font-sans"
+                    onClick={() => openWhatsApp(contactingSupplier.supplier.phone, contactingSupplier.item.name, contactingSupplier.supplier.name)}
+                    className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl flex items-center justify-center gap-3 hover:bg-emerald-600 transition-all active:scale-95 shadow-lg shadow-emerald-100"
                  >
                     <MessageCircle size={22} /> Enviar WhatsApp
                  </button>
                  <button onClick={() => setContactingSupplier(null)} className="w-full py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest mt-2">Cancelar</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL DETALHE AGENDAMENTO - DINÂMICO HOJE/AMANHÃ */}
+      {selectedAppt && (
+         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
+               <div className="p-8 bg-purple-600 text-white">
+                  <div className="flex items-center gap-2 text-purple-200 mb-1"><Calendar size={16} /><span className="text-[10px] font-black uppercase tracking-widest">Ações de Agenda</span></div>
+                  <h3 className="font-black text-2xl font-heading truncate">{selectedAppt.customerName}</h3>
+                  <p className="text-sm font-bold text-purple-100 mt-1 uppercase tracking-widest">{selectedAppt.date === todayStr ? 'Hoje' : 'Amanhã'} às {selectedAppt.time}</p>
+               </div>
+               <div className="p-8 space-y-4">
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 shadow-inner mb-4">
+                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Serviços</span>
+                     <p className="text-sm font-bold text-slate-800 mt-1">{selectedAppt.serviceNames?.join(', ')}</p>
+                     <p className="text-xl font-black text-emerald-600 mt-3">{symbol} {selectedAppt.totalAmount.toLocaleString()}</p>
+                  </div>
+
+                  {selectedAppt.date === todayStr ? (
+                    <div className="space-y-3">
+                       <button onClick={() => setShowApptPaymentSelector(true)} className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-emerald-100 active:scale-95 transition-all uppercase text-xs tracking-widest"><ShoppingCart size={18}/> Efectuar Venda</button>
+                       <div className="grid grid-cols-2 gap-3">
+                          <button onClick={() => { navigate('/appointments', { state: { reschedule: selectedAppt } }); setSelectedAppt(null); }} className="py-4 bg-slate-100 text-slate-600 font-black rounded-2xl text-[10px] uppercase border border-slate-200">Remarcar</button>
+                          <button onClick={() => { onUpdateAppointmentStatus?.(selectedAppt.id, 'cancelled'); setSelectedAppt(null); }} className="py-4 bg-red-50 text-red-400 font-black rounded-2xl text-[10px] uppercase border border-red-100">Cancelar</button>
+                       </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                       <button onClick={() => { onUpdateAppointmentStatus?.(selectedAppt.id, 'confirmed'); setSelectedAppt(null); }} className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-emerald-100 active:scale-95 transition-all uppercase text-xs tracking-widest"><CheckCircle size={18}/> Confirmar Presença</button>
+                       <div className="grid grid-cols-2 gap-3">
+                          <button onClick={() => { navigate('/appointments', { state: { reschedule: selectedAppt } }); setSelectedAppt(null); }} className="py-4 bg-slate-100 text-slate-600 font-black rounded-2xl text-[10px] uppercase border border-slate-200">Remarcar</button>
+                          <button onClick={() => { onUpdateAppointmentStatus?.(selectedAppt.id, 'cancelled'); setSelectedAppt(null); }} className="py-4 bg-red-50 text-red-400 font-black rounded-2xl text-[10px] uppercase border border-red-100">Cancelar</button>
+                       </div>
+                    </div>
+                  )}
+                  <button onClick={() => setSelectedAppt(null)} className="w-full py-3 text-slate-400 font-black text-[10px] uppercase mt-2">Fechar</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* SELETOR DE PAGAMENTO AGENDAMENTO */}
+      {showApptPaymentSelector && selectedAppt && (
+         <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl p-8 text-center animate-[scaleIn_0.2s]">
+               <h3 className="text-xl font-black text-slate-800 font-heading mb-8">Canal de Recebimento</h3>
+               <div className="grid grid-cols-2 gap-4 mb-8">
+                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
+                    <button key={m} onClick={() => handleApptPaymentSelection(m as PaymentMethod)} className="flex flex-col items-center justify-center p-6 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-[2rem] border border-slate-100 transition-all active:scale-90 group">
+                       {m === 'cash' ? <Wallet size={24} className="group-hover:text-white text-slate-300 mb-2"/> : <Smartphone size={24} className="group-hover:text-white text-slate-300 mb-2"/>}
+                       <span className="text-[10px] font-black uppercase tracking-widest">{m}</span>
+                    </button>
+                  ))}
+               </div>
+               <button onClick={() => setShowApptPaymentSelector(false)} className="py-4 text-slate-400 font-black text-[10px] uppercase">Voltar</button>
+            </div>
+         </div>
+      )}
+
+      {/* CONFIRMAÇÃO FINAL AGENDAMENTO */}
+      {apptPaymentToConfirm && (
+         <div className="fixed inset-0 z-[800] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-xs rounded-[2.5rem] shadow-2xl p-8 text-center animate-[scaleIn_0.2s]">
+               <div className="bg-emerald-50 text-emerald-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle size={32} /></div>
+               <h3 className="text-lg font-black text-slate-800">Finalizar Venda?</h3>
+               <p className="text-xs text-slate-500 mt-2">Receber <span className="font-black text-slate-900">{symbol} {apptPaymentToConfirm.appt.totalAmount.toLocaleString()}</span> via <span className="font-black uppercase text-emerald-600">{apptPaymentToConfirm.method}</span>?</p>
+               <div className="grid grid-cols-2 gap-3 mt-8">
+                  <button onClick={() => setApptPaymentToConfirm(null)} className="py-3 bg-slate-100 text-slate-500 font-bold rounded-xl text-[10px] uppercase">Ajustar</button>
+                  <button onClick={handleFinalApptPayment} className="py-3 bg-emerald-600 text-white font-black rounded-xl text-[10px] uppercase shadow-lg shadow-emerald-200">Confirmar</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* MODAL RECIBO PREMIUM PADRONIZADO (VENDAS HISTÓRICAS) */}
+      {viewingReceiptGroup && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-4 animate-[fadeIn_0.2s]">
+             <div className="bg-white w-full max-w-sm rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+                <div className="p-10 bg-emerald-600 text-white text-center relative overflow-hidden">
+                   <div className="absolute top-0 left-0 w-full h-1 bg-white/20 animate-pulse"></div>
+                   <CheckCircle className="mx-auto mb-4" size={56} />
+                   <h3 className="text-2xl font-black font-heading tracking-tight">Transação Concluída</h3>
+                   <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-[0.2em] mt-2">Documento Digital #{(viewingReceiptGroup[0]?.transactionId || '000').slice(0,8)}</p>
+                </div>
+                
+                <div className="p-8 space-y-6">
+                   <div className="bg-slate-50 rounded-[2.5rem] p-6 border border-slate-100 shadow-inner">
+                      <div className="flex justify-between items-start mb-6 border-b border-dashed border-slate-200 pb-4">
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Building2 size={10}/> Empresa</p>
+                            <p className="text-sm font-bold text-slate-800">{activeBusinessName}</p>
+                         </div>
+                         <div className="text-right">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5 justify-end"><Clock size={10}/> Data</p>
+                            <p className="text-sm font-bold text-slate-800">{formatDateTime(viewingReceiptGroup[0].date).date}</p>
+                         </div>
+                      </div>
+
+                      <div className="space-y-3 mb-6 max-h-32 overflow-y-auto custom-scrollbar pr-2">
+                         {viewingReceiptGroup.map((r, i) => (
+                            <div key={i} className="flex justify-between items-center text-xs">
+                               <div className="min-w-0 flex-1"><p className="font-bold text-slate-700 truncate">{r.itemName}</p><p className="text-[9px] text-slate-400 uppercase">{r.quantity}x {r.itemUnit || 'un'}</p></div>
+                               <span className="ml-4 font-black text-slate-900">{symbol} {(r.totalRevenue * rate).toLocaleString()}</span>
+                            </div>
+                         ))}
+                      </div>
+
+                      <div className="space-y-2 border-t border-dashed border-slate-200 pt-4 mb-6">
+                         <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                            <span>Canal</span>
+                            <span className="text-emerald-600 flex items-center gap-1.5"><Smartphone size={12}/> {viewingReceiptGroup[0].paymentMethod}</span>
+                         </div>
+                         <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                            <span>Operador</span>
+                            <span className="text-slate-800">{viewingReceiptGroup[0].operatorName}</span>
+                         </div>
+                         {viewingReceiptGroup[0].customerName && (
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                               <span>Cliente</span>
+                               <span className="text-indigo-600 flex items-center gap-1.5"><User size={12}/> {viewingReceiptGroup[0].customerName}</span>
+                            </div>
+                         )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2">
+                         <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Total Pago</span>
+                         <span className="text-3xl font-black text-emerald-600">{symbol} {viewingReceiptGroup.reduce((acc, i) => acc + (Number(i.totalRevenue) * rate), 0).toLocaleString()}</span>
+                      </div>
+                   </div>
+
+                   <button onClick={() => setViewingReceiptGroup(null)} className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] shadow-2xl hover:bg-black active:scale-95 transition-all flex items-center justify-center">
+                      <Receipt size={18} className="mr-3 text-emerald-400" /> Sair do Recibo
+                   </button>
+                </div>
+             </div>
+          </div>
+      )}
+
+      {/* MODAL NOVO REGISTO DE SAÍDA */}
+      {showExpenseForm && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
+              <div className="p-8 bg-red-600 text-white flex justify-between items-center">
+                 <h3 className="font-black text-xl font-heading">Nova Saída</h3>
+                 <button onClick={() => setShowExpenseForm(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={20}/></button>
+              </div>
+              <form onSubmit={handleSaveNewExpense} className="p-8 space-y-5">
+                 <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Descrição</label><input placeholder="Ex: Compra de Pão" required className="w-full p-4 bg-gray-50 border-none rounded-2xl font-bold shadow-inner" value={newExpense.name} onChange={e => setNewExpense({...newExpense, name: e.target.value})} /></div>
+                 <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Montante (MT)</label><input type="number" placeholder="0.00" required className="w-full p-4 bg-gray-50 border-none rounded-2xl font-bold shadow-inner text-red-600" value={newExpense.amount || ''} onChange={e => setNewExpense({...newExpense, amount: Number(e.target.value)})} /></div>
+                 <div className="flex gap-2">
+                    <button type="button" onClick={() => setNewExpense({...newExpense, type: 'fixed'})} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${newExpense.type === 'fixed' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}>Fixa</button>
+                    <button type="button" onClick={() => setNewExpense({...newExpense, type: 'variable'})} className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${newExpense.type === 'variable' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-400'}`}>Variável</button>
+                 </div>
+                 <button type="submit" className="w-full py-5 bg-red-600 text-white font-black rounded-3xl shadow-xl uppercase text-xs tracking-widest active:scale-95 transition-all">Registar no Fluxo</button>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL AÇÕES DESPESA */}
+      {showExpenseActionModal && selectedExpense && (
+         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
+               <div className="p-10 text-center">
+                  <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6"><Calculator size={40}/></div>
+                  <h3 className="text-2xl font-black text-slate-900 font-heading">{selectedExpense.name}</h3>
+                  <p className="text-4xl font-black text-red-600 mt-2">{symbol} {selectedExpense.amount.toLocaleString()}</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-4 tracking-widest">Estado: PENDENTE</p>
+               </div>
+               <div className="p-8 pt-0 grid grid-cols-2 gap-3">
+                  <button onClick={() => { onDeleteExpense?.(selectedExpense.id); setShowExpenseActionModal(false); }} className="py-4 bg-slate-50 text-red-400 font-black rounded-2xl text-[10px] uppercase">Eliminar</button>
+                  <button onClick={() => setShowPaymentSelector(true)} className="py-4 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase shadow-lg">Pagar Agora</button>
+               </div>
+               <button onClick={() => setShowExpenseActionModal(false)} className="w-full py-5 text-slate-400 font-black text-[10px] uppercase border-t">Fechar</button>
+            </div>
+         </div>
+      )}
+
+      {/* SELETOR DE PAGAMENTO DESPESA */}
+      {showPaymentSelector && (
+         <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl p-8 text-center animate-[scaleIn_0.2s]">
+               <h3 className="text-xl font-black text-slate-800 font-heading mb-8">Canal de Saída</h3>
+               <div className="grid grid-cols-2 gap-4 mb-8">
+                  {['cash', 'mpesa', 'emola', 'card'].map(m => (
+                    <button key={m} onClick={() => confirmExpensePayment(m as PaymentMethod)} className="flex flex-col items-center justify-center p-6 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-[2rem] border border-slate-100 transition-all active:scale-90 group">
+                       {m === 'cash' ? <Wallet size={24} className="group-hover:text-white text-slate-300 mb-2"/> : <Smartphone size={24} className="group-hover:text-white text-slate-300 mb-2"/>}
+                       <span className="text-[10px] font-black uppercase tracking-widest">{m}</span>
+                    </button>
+                  ))}
+               </div>
+               <button onClick={() => setShowPaymentSelector(false)} className="py-4 text-slate-400 font-black text-[10px] uppercase">Voltar</button>
+            </div>
+         </div>
+      )}
+
+      {/* MODAL CONFIRMAÇÃO FINAL DE SAÍDA */}
+      {expensePaymentToConfirm && (
+         <div className="fixed inset-0 z-[800] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+            <div className="bg-white w-full max-w-xs rounded-[2.5rem] shadow-2xl p-8 text-center animate-[scaleIn_0.2s]">
+               <div className="bg-red-50 text-red-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle size={32} /></div>
+               <h3 className="text-lg font-black text-slate-800">Confirmar Saída?</h3>
+               <p className="text-xs text-slate-500 mt-2">Deseja autorizar o pagamento de <span className="font-black text-slate-900">{symbol} {expensePaymentToConfirm.expense.amount.toLocaleString()}</span> para <span className="font-bold text-slate-800">{expensePaymentToConfirm.expense.name}</span> via <span className="font-black uppercase text-emerald-600">{expensePaymentToConfirm.method}</span>?</p>
+               <div className="grid grid-cols-2 gap-3 mt-8">
+                  <button onClick={() => setExpensePaymentToConfirm(null)} className="py-3 bg-slate-100 text-slate-500 font-bold rounded-xl text-[10px] uppercase">Voltar</button>
+                  <button onClick={handleFinalExpensePayment} className="py-3 bg-emerald-600 text-white font-black rounded-xl text-[10px] uppercase shadow-lg shadow-emerald-200">Confirmar</button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* MODAL DETALHE DE AUDITORIA */}
+      {viewingLog && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
+           <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+              <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
+                 <div className="flex items-center gap-3"><Activity size={24} /><h3 className="font-black text-xl font-heading">Operação</h3></div>
+                 <button onClick={() => setViewingLog(null)} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-all"><X size={20}/></button>
+              </div>
+              <div className="p-8 space-y-6">
+                 <div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ação</span><p className="text-lg font-bold text-slate-800 mt-1">{viewingLog.details}</p></div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável</span><p className="text-sm font-bold text-slate-800 mt-1">{viewingLog.operatorName}</p></div>
+                    <div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hora</span><p className="text-sm font-black text-blue-600 mt-1 uppercase">{formatDateTime(viewingLog.timestamp).time}</p></div>
+                 </div>
+                 <button onClick={() => setViewingLog(null)} className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl text-[10px] uppercase tracking-widest">Fechar</button>
               </div>
            </div>
         </div>

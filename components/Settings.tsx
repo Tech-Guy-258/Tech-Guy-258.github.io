@@ -56,30 +56,35 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
     setCleaningStep('A iniciar limpeza...');
 
     try {
-      // Passo 1: Service Workers (20%)
       setCleaningProgress(10);
       setCleaningStep('A parar serviços antigos...');
-      await new Promise(r => setTimeout(r, 500)); 
+      await new Promise(r => setTimeout(r, 400)); 
 
       if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for(const registration of registrations) {
-          await registration.unregister();
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for(const registration of registrations) {
+            await registration.unregister();
+          }
+        } catch (e) {
+          console.debug("SW Unregister handled.");
         }
       }
       setCleaningProgress(40);
 
-      // Passo 2: Cache Storage (60%)
       setCleaningStep('A apagar ficheiros em cache...');
-      await new Promise(r => setTimeout(r, 800)); 
+      await new Promise(r => setTimeout(r, 400)); 
 
       if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(key => caches.delete(key)));
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(key => caches.delete(key)));
+        } catch (e) {
+          console.debug("Cache Clear handled.");
+        }
       }
       setCleaningProgress(80);
 
-      // Passo 3: Finalização (100%)
       setCleaningStep('A finalizar e reiniciar...');
       
       let p = 80;
@@ -95,7 +100,7 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
     } catch (e) {
       console.error("Erro ao limpar cache", e);
       setIsCleaning(false);
-      alert("Ocorreu um erro ao limpar. Tente recarregar manualmente.");
+      alert("Limpeza parcial concluída. Por favor, recarregue a página manualmente.");
     }
   };
 
@@ -131,7 +136,6 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
                 <AlertCircle className="text-blue-500 mt-0.5 mr-3 flex-shrink-0" size={18} />
                 <p className="text-sm text-blue-800">
                   A moeda base é o <strong>Metical (MZN)</strong>. Altere os valores abaixo para ajustar quanto vale 1 MT noutras moedas.
-                  As atualizações são aplicadas imediatamente em toda a aplicação.
                 </p>
               </div>
 
@@ -185,11 +189,9 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
               <h3 className="text-lg font-bold text-gray-800 mb-4">Sobre a Aplicação</h3>
               <div className="space-y-4 text-gray-600 text-sm">
                 <p>
-                  O <strong>MerceariaGest</strong> utiliza inteligência artificial para ajudar na gestão do seu inventário.
-                  Os preços são armazenados internamente em Meticais (MZN).
+                  O <strong>Gestão360</strong> utiliza inteligência artificial para ajudar na gestão do seu negócio.
                 </p>
                 
-                {/* Clear Cache Button */}
                 <div className="pt-4 border-t border-gray-100">
                   <button 
                     onClick={() => setShowConfirmCache(true)}
@@ -198,25 +200,19 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
                     <Eraser size={18} />
                     <span>Limpar Cache & Reparar</span>
                   </button>
-                  <p className="text-xs text-center text-gray-400 mt-2">Use se não vir novas funcionalidades ou menus.</p>
                 </div>
 
                 <div className="pt-4 border-t border-gray-100">
                   <p className="font-medium text-gray-800">Versão {APP_VERSION}</p>
-                  <p className="text-xs text-gray-400 mt-1">© 2024 MerceariaGest Inc.</p>
                 </div>
               </div>
             </div>
 
-            {/* Danger Zone */}
             <div className="bg-red-50 rounded-xl shadow-sm border border-red-100 p-6">
               <div className="flex items-center mb-4 text-red-700">
                  <AlertTriangle size={20} className="mr-2" />
                  <h3 className="text-lg font-bold">Zona de Perigo</h3>
               </div>
-              <p className="text-sm text-red-600 mb-4">
-                Ações nesta área são irreversíveis. Tenha cuidado.
-              </p>
               <button 
                 onClick={handleClearData}
                 className="w-full bg-white border border-red-200 text-red-600 font-bold py-3 rounded-xl hover:bg-red-600 hover:text-white transition-colors flex items-center justify-center shadow-sm"
@@ -228,7 +224,6 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
           </div>
         </div>
 
-        {/* Toast Notification */}
         {successMessage && (
           <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-6 py-4 rounded-xl shadow-xl flex items-center animate-[slideIn_0.3s_ease-out] z-[100] border border-emerald-500">
             <CheckCircle className="mr-3 text-emerald-200" size={24} />
@@ -237,7 +232,6 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
         )}
       </div>
 
-      {/* CONFIRMATION MODAL (Outside main div to avoid stacking context) */}
       {showConfirmCache && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-[fadeIn_0.2s]">
            <div className="bg-white p-6 rounded-3xl shadow-2xl max-w-sm w-full relative overflow-hidden m-4 animate-[scaleIn_0.2s_ease-out]">
@@ -246,63 +240,32 @@ const Settings: React.FC<SettingsProps> = ({ rates, onUpdateRate, onResetRates, 
                     <Eraser size={32} />
                  </div>
                  <h3 className="text-xl font-bold text-gray-900 mb-2">Limpar Cache?</h3>
-                 <p className="text-gray-500 text-sm mb-6">
-                    Isto irá recarregar a aplicação para corrigir erros visuais e atualizar para a versão mais recente.
-                 </p>
+                 <p className="text-gray-500 text-sm mb-6">Recarregar a aplicação para corrigir erros visuais e atualizar para a versão mais recente.</p>
                  <div className="flex gap-3 w-full">
-                    <button 
-                       onClick={() => setShowConfirmCache(false)}
-                       className="flex-1 py-3 text-gray-600 font-bold bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
-                    >
-                       Cancelar
-                    </button>
-                    <button 
-                       onClick={executeCacheClear}
-                       className="flex-1 py-3 text-white font-bold bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors shadow-lg shadow-orange-200"
-                    >
-                       Confirmar
-                    </button>
+                    <button onClick={() => setShowConfirmCache(false)} className="flex-1 py-3 text-gray-600 font-bold bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors">Cancelar</button>
+                    <button onClick={executeCacheClear} className="flex-1 py-3 text-white font-bold bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors shadow-lg shadow-orange-200">Confirmar</button>
                  </div>
               </div>
            </div>
         </div>
       )}
 
-      {/* PROGRESS BAR MODAL OVERLAY */}
       {isCleaning && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md animate-[fadeIn_0.2s]">
            <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden m-4">
               <div className="absolute top-0 left-0 w-full h-1.5 bg-gray-100">
-                 <div 
-                    className="h-full bg-orange-500 transition-all duration-300 ease-linear"
-                    style={{ width: `${cleaningProgress}%` }}
-                 ></div>
+                 <div className="h-full bg-orange-500 transition-all duration-300 ease-linear" style={{ width: `${cleaningProgress}%` }}></div>
               </div>
-
               <div className="mb-6 flex justify-center relative">
                  <div className="w-20 h-20 bg-orange-50 rounded-full flex items-center justify-center text-orange-500 relative">
                     <Database size={32} className="relative z-10" />
                     <div className="absolute inset-0 rounded-full border-4 border-orange-100 border-t-orange-500 animate-spin"></div>
                  </div>
-                 {cleaningProgress === 100 && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white rounded-3xl">
-                       <CheckCircle size={48} className="text-emerald-500 animate-[scaleIn_0.3s_ease-out]" />
-                    </div>
-                 )}
               </div>
-
-              <h3 className="text-xl font-bold text-gray-900 mb-2 font-heading">
-                 {cleaningProgress < 100 ? 'A Otimizar...' : 'Concluído!'}
-              </h3>
-              <p className="text-gray-500 text-sm mb-6 h-5">
-                 {cleaningStep}
-              </p>
-
+              <h3 className="text-xl font-bold text-gray-900 mb-2 font-heading">{cleaningProgress < 100 ? 'A Otimizar...' : 'Concluído!'}</h3>
+              <p className="text-gray-500 text-sm mb-6 h-5">{cleaningStep}</p>
               <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden shadow-inner">
-                 <div 
-                    className="h-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all duration-300 ease-out rounded-full"
-                    style={{ width: `${cleaningProgress}%` }}
-                 ></div>
+                 <div className="h-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all duration-300 ease-out rounded-full" style={{ width: `${cleaningProgress}%` }}></div>
               </div>
               <div className="flex justify-between mt-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                  <span>A processar</span>

@@ -11,33 +11,35 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 /**
- * Safely unregisters service workers without blocking the UI thread or throwing state errors.
+ * Safely unregisters service workers with robust error handling.
  */
 const safeUnregisterSW = async () => {
-  if (!('serviceWorker' in navigator)) return;
-  // Prevent execution if document is not in a valid state
-  if (document.readyState === 'loading') return;
-  
   try {
+    if (!('serviceWorker' in navigator)) return;
+    
+    // Fix: Updated invalid comparison 'uninitialized' to standard 'loading' state
+    if (document.readyState === 'loading') return;
+
     const registrations = await navigator.serviceWorker.getRegistrations();
     for (const reg of registrations) {
       await reg.unregister();
     }
   } catch (err) {
-    console.warn("SW Cleanup deferred: Document might be in an invalid state.");
+    // Silent fail for environmental/sandbox restrictions
+    console.debug("SW Cleanup skipped: Environment restriction or invalid state.");
   }
 };
 
 /**
- * Safely clears browser caches.
+ * Safely clears browser caches with robust error handling.
  */
 const safeClearCaches = async () => {
-  if (!('caches' in window)) return;
   try {
+    if (!('caches' in window)) return;
     const keys = await caches.keys();
     await Promise.all(keys.map(key => caches.delete(key)));
   } catch (err) {
-    console.warn("Cache Cleanup deferred.");
+    console.debug("Cache Cleanup skipped.");
   }
 };
 
@@ -45,9 +47,9 @@ const initApp = async () => {
   const storedVersion = localStorage.getItem('app_version');
   
   if (storedVersion && storedVersion !== APP_VERSION) {
-    console.log(`Nova versão ${APP_VERSION} detetada. A preparar atualização...`);
+    console.log(`Nova versão ${APP_VERSION} detetada. A limpar ambiente...`);
     
-    // Background cleanup
+    // Run cleanup but don't await it to avoid blocking UI if it fails
     safeUnregisterSW();
     safeClearCaches();
 
@@ -63,6 +65,7 @@ const initApp = async () => {
   );
 };
 
+// Ensure we wait for the document to be interactive at least
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {

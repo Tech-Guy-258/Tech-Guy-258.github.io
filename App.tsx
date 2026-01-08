@@ -17,7 +17,7 @@ import CustomersPage from './components/CustomersPage';
 import AppointmentsPage from './components/AppointmentsPage'; 
 import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer, Expense, Appointment, AppointmentStatus, Supplier } from './types';
 import { DEFAULT_EXCHANGE_RATES, APP_NAME, getDemoAccount, APP_VERSION, generateID, CURRENCY_SYMBOLS } from './constants';
-import { Menu, X, LogOut, User as UserIcon, Receipt, CheckCircle } from 'lucide-react';
+import { Menu, X, LogOut, User as UserIcon, Receipt, CheckCircle, Smartphone, User, Clock, Building2 } from 'lucide-react';
 
 const MobileNav = ({ 
   isOpen, onClose, currency, onCurrencyChange, rates, onLogout, session
@@ -242,7 +242,6 @@ const AppContent: React.FC = () => {
   };
 
   const handleLoginSuccess = (account: Account, businessId: string, operator: any) => {
-    // Forçar dados demo se o número for o 840000001 para garantir alertas visíveis
     if (account.phoneNumber === '840000001') {
        const freshDemo = getDemoAccount();
        setAccounts(prev => prev.map(a => a.phoneNumber === '840000001' ? freshDemo : a));
@@ -287,29 +286,65 @@ const AppContent: React.FC = () => {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
+
+        {/* RECIBO DIGITAL ULTRA-DETALHADO (VENDAS E AGENDAMENTOS) */}
         {activeReceipt && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
-             <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
-                <div className="p-8 bg-emerald-600 text-white text-center">
-                   <CheckCircle className="mx-auto mb-4" size={48} />
-                   <h3 className="text-2xl font-bold font-heading">Sucesso!</h3>
-                   <p className="text-emerald-100 mt-1">Venda registada com sucesso.</p>
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-4 animate-[fadeIn_0.2s]">
+             <div className="bg-white w-full max-w-sm rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
+                <div className="p-10 bg-emerald-600 text-white text-center relative overflow-hidden">
+                   <div className="absolute top-0 left-0 w-full h-1 bg-white/20 animate-pulse"></div>
+                   <CheckCircle className="mx-auto mb-4" size={56} />
+                   <h3 className="text-2xl font-black font-heading tracking-tight">Transação Concluída</h3>
+                   <p className="text-emerald-100 text-[10px] font-bold uppercase tracking-[0.2em] mt-2">Documento Digital #{(activeReceipt.records[0]?.transactionId || '000').slice(0,8)}</p>
                 </div>
-                <div className="p-6">
-                   <div className="border-b border-dashed border-gray-200 pb-4 mb-4">
-                      {activeReceipt.records.map((r, i) => (
-                         <div key={i} className="flex justify-between items-center text-sm mb-1">
-                            <span className="font-bold text-gray-800">{r.itemName}</span>
-                            <span className="font-bold">{CURRENCY_SYMBOLS[currency]} {r.totalRevenue.toFixed(2)}</span>
+                
+                <div className="p-8 space-y-6">
+                   <div className="bg-slate-50 rounded-[2.5rem] p-6 border border-slate-100 shadow-inner">
+                      <div className="flex justify-between items-start mb-6 border-b border-dashed border-slate-200 pb-4">
+                         <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Building2 size={10}/> Empresa</p>
+                            <p className="text-sm font-bold text-slate-800">{activeBusiness.name}</p>
                          </div>
-                      ))}
+                         <div className="text-right">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5 justify-end"><Clock size={10}/> Data</p>
+                            <p className="text-sm font-bold text-slate-800">{new Date().toLocaleDateString('pt-PT')}</p>
+                         </div>
+                      </div>
+
+                      <div className="space-y-3 mb-6 max-h-32 overflow-y-auto custom-scrollbar pr-2">
+                         {activeReceipt.records.map((r, i) => (
+                            <div key={i} className="flex justify-between items-center text-xs">
+                               <div className="min-w-0 flex-1"><p className="font-bold text-slate-700 truncate">{r.itemName}</p><p className="text-[9px] text-slate-400 uppercase">{r.quantity}x {r.itemUnit || 'un'}</p></div>
+                               <span className="ml-4 font-black text-slate-900">{CURRENCY_SYMBOLS[currency]} {r.totalRevenue.toLocaleString()}</span>
+                            </div>
+                         ))}
+                      </div>
+
+                      <div className="space-y-2 border-t border-dashed border-slate-200 pt-4 mb-6">
+                         <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                            <span>Canal</span>
+                            <span className="text-emerald-600 flex items-center gap-1.5"><Smartphone size={12}/> {activeReceipt.method}</span>
+                         </div>
+                         <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                            <span>Operador</span>
+                            <span className="text-slate-800">{activeReceipt.records[0]?.operatorName}</span>
+                         </div>
+                         {activeReceipt.records[0]?.customerName && (
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                               <span>Cliente</span>
+                               <span className="text-indigo-600 flex items-center gap-1.5"><User size={12}/> {activeReceipt.records[0].customerName}</span>
+                            </div>
+                         )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2">
+                         <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Total Pago</span>
+                         <span className="text-3xl font-black text-emerald-600">{CURRENCY_SYMBOLS[currency]} {activeReceipt.total.toLocaleString()}</span>
+                      </div>
                    </div>
-                   <div className="flex justify-between items-center text-xl font-bold text-emerald-600 mb-6">
-                      <span>Total Recebido</span>
-                      <span>{CURRENCY_SYMBOLS[currency]} {activeReceipt.total.toFixed(2)}</span>
-                   </div>
-                   <button onClick={() => setActiveReceipt(null)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center active:scale-95">
-                      <Receipt size={18} className="mr-2" /> Novo Recebimento
+
+                   <button onClick={() => setActiveReceipt(null)} className="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black uppercase text-xs tracking-[0.2em] shadow-2xl hover:bg-black active:scale-95 transition-all flex items-center justify-center">
+                      <Receipt size={18} className="mr-3 text-emerald-400" /> Novo Recebimento
                    </button>
                 </div>
              </div>
