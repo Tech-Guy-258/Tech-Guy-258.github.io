@@ -15,7 +15,7 @@ import ProfilePage from './components/ProfilePage';
 import SuppliersPage from './components/SuppliersPage';
 import CustomersPage from './components/CustomersPage';
 import AppointmentsPage from './components/AppointmentsPage'; 
-import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer, Expense, Appointment, AppointmentStatus } from './types';
+import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer, Expense, Appointment, AppointmentStatus, Supplier } from './types';
 import { DEFAULT_EXCHANGE_RATES, APP_NAME, getDemoAccount, APP_VERSION, generateID, CURRENCY_SYMBOLS } from './constants';
 import { Menu, X, LogOut, User as UserIcon, Receipt, CheckCircle } from 'lucide-react';
 
@@ -101,9 +101,10 @@ const AppContent: React.FC = () => {
       const saved = localStorage.getItem('gestao360_accounts');
       if (saved) initialAccounts = JSON.parse(saved);
     } catch (e) {}
+    
     const demoUser = getDemoAccount();
-    if (!initialAccounts.find(a => a.phoneNumber === demoUser.phoneNumber)) initialAccounts.push(demoUser);
-    return initialAccounts;
+    const otherAccounts = initialAccounts.filter(a => a.phoneNumber !== demoUser.phoneNumber);
+    return [demoUser, ...otherAccounts];
   });
 
   const [currentSession, setCurrentSession] = useState<CurrentSession | null>(() => {
@@ -152,56 +153,62 @@ const AppContent: React.FC = () => {
     }));
   };
 
+  const handleQuickAddSupplier = (supData: Omit<Supplier, 'id'>) => {
+     const newSup: Supplier = { ...supData, id: generateID() };
+     updateActiveBusiness(biz => ({
+        ...biz, suppliers: [...(biz.suppliers || []), newSup],
+        auditLogs: [createLog('CREATE', `Fornecedor Rápido: ${newSup.name}`), ...(biz.auditLogs || [])]
+     }));
+     return newSup;
+  };
+
   const handleRestock = (itemId: string, qty: number) => {
     if (!activeBusiness) return;
     const item = activeBusiness.items.find(i => i.id === itemId);
     if (!item) return;
-
     updateActiveBusiness(biz => {
        const updatedItems = biz.items.map(i => i.id === itemId ? { ...i, quantity: i.quantity + qty } : i);
-       const log = createLog('UPDATE', `Reposição de Stock: +${qty} un para "${item.name}"`);
+       const log = createLog('UPDATE', `Reposição: +${qty} un para "${item.name}"`);
        return { ...biz, items: updatedItems, auditLogs: [log, ...(biz.auditLogs || [])] };
     });
   };
 
-  const handlePayExpense = (expenseId: string, method: PaymentMethod) => {
+  const handlePayExpense = (expenseId: string, method: PaymentMethod, months: number = 1) => {
     if (!activeBusiness || !currentSession) return;
     const expense = activeBusiness.expenses?.find(e => e.id === expenseId);
     if (!expense) return;
-
     const opName = currentSession.operator.name;
-
+    const totalAmountPaid = expense.amount * months;
+    
     updateActiveBusiness(biz => {
-      let updatedExpenses = [...(biz.expenses || [])];
-      
-      if (expense.type === 'variable') {
-        updatedExpenses = updatedExpenses.map(e => 
-          e.id === expenseId ? { ...e, isPaid: true, lastPaidDate: new Date().toISOString(), paymentMethod: method, operatorName: opName } : e
-        );
-      } else {
-        updatedExpenses = updatedExpenses.map(e => {
-          if (e.id === expenseId) {
-             const nextDue = new Date(e.nextDueDate);
-             nextDue.setMonth(nextDue.getMonth() + 1);
-             return { ...e, lastPaidDate: new Date().toISOString(), nextDueDate: nextDue.toISOString(), paymentMethod: method, operatorName: opName, isPaid: false };
-          }
-          return e;
-        });
-      }
-
-      const log = createLog('EXPENSE', `Saída: "${expense.name}" (${expense.amount}MT) via ${method} por ${opName}`);
+      let updatedExpenses = (biz.expenses || []).map(e => {
+        if (e.id === expenseId) {
+          if (e.type === 'variable') return { ...e, isPaid: true, lastPaidDate: new Date().toISOString(), paymentMethod: method, operatorName: opName };
+          const nextDue = new Date(e.nextDueDate);
+          nextDue.setMonth(nextDue.getMonth() + months);
+          return { ...e, lastPaidDate: new Date().toISOString(), nextDueDate: nextDue.toISOString(), paymentMethod: method, operatorName: opName, isPaid: true };
+        }
+        return e;
+      });
+      const log = createLog('EXPENSE', `Saída Paga (${months} mes/es): "${expense.name}" (${totalAmountPaid}MT)`);
       return { ...biz, expenses: updatedExpenses, auditLogs: [log, ...(biz.auditLogs || [])] };
     });
+  };
+
+  const handleUpdateAppointmentStatus = (id: string, status: AppointmentStatus) => {
+     updateActiveBusiness(biz => ({
+        ...biz,
+        appointments: (biz.appointments || []).map(a => a.id === id ? { ...a, status } : a),
+        auditLogs: [createLog('APPOINTMENT', `Estado alterado para ${status}`), ...(biz.auditLogs || [])]
+     }));
   };
 
   const handleCompleteAppointment = (appointmentId: string, paymentMethod: PaymentMethod) => {
     if (!activeBusiness || !currentSession) return;
     const appt = activeBusiness.appointments?.find(a => a.id === appointmentId);
     if (!appt) return;
-
     const transactionId = generateID();
     const date = new Date().toISOString();
-    
     const salesRecords: SaleRecord[] = (appt.serviceIds || []).map(sid => {
        const service = activeBusiness.items.find(i => i.id === sid);
        const sellPrice = service?.sellingPrice || service?.price || 0;
@@ -213,16 +220,16 @@ const AppContent: React.FC = () => {
           customerId: appt.customerId, customerName: appt.customerName
        };
     });
-
     const totalRevenue = salesRecords.reduce((acc, r) => acc + r.totalRevenue, 0);
-
     updateActiveBusiness(biz => {
       const updatedAppointments = (biz.appointments || []).map(a => a.id === appointmentId ? { ...a, status: 'completed' as AppointmentStatus } : a);
       const updatedSales = [...(biz.sales || []), ...salesRecords];
-      const log = createLog('SALE', `Agendamento Concluído: ${appt.serviceNames.join(', ')} (${totalRevenue}MT) via ${paymentMethod} por ${currentSession.operator.name}`);
-      return { ...biz, appointments: updatedAppointments, sales: updatedSales, auditLogs: [log, ...(biz.auditLogs || [])] };
+      const updatedCustomers = (biz.customers || []).map(c => 
+        c.id === appt.customerId ? { ...c, lastVisit: new Date().toISOString(), totalSpent: c.totalSpent + totalRevenue } : c
+      );
+      const log = createLog('SALE', `Agendamento Concluído: ${appt.customerName} (${totalRevenue}MT)`);
+      return { ...biz, appointments: updatedAppointments, sales: updatedSales, customers: updatedCustomers, auditLogs: [log, ...(biz.auditLogs || [])] };
     });
-
     setActiveReceipt({ records: salesRecords, total: totalRevenue, method: paymentMethod });
   };
 
@@ -235,10 +242,15 @@ const AppContent: React.FC = () => {
   };
 
   const handleLoginSuccess = (account: Account, businessId: string, operator: any) => {
-    const finalPermissions: Permission[] = operator.role === 'owner' 
-      ? ['POS_SELL', 'MANAGE_STOCK', 'VIEW_REPORTS', 'MANAGE_TEAM', 'SETTINGS']
-      : (operator.permissions || []);
-    setCurrentSession({ account, businessId, operator: { ...operator, permissions: finalPermissions } });
+    // Forçar dados demo se o número for o 840000001 para garantir alertas visíveis
+    if (account.phoneNumber === '840000001') {
+       const freshDemo = getDemoAccount();
+       setAccounts(prev => prev.map(a => a.phoneNumber === '840000001' ? freshDemo : a));
+       setCurrentSession({ account: freshDemo, businessId: freshDemo.businesses[0].id, operator: { ...operator, permissions: ['POS_SELL', 'MANAGE_STOCK', 'VIEW_REPORTS', 'MANAGE_TEAM', 'SETTINGS'] } });
+    } else {
+       const finalPermissions: Permission[] = operator.role === 'owner' ? ['POS_SELL', 'MANAGE_STOCK', 'VIEW_REPORTS', 'MANAGE_TEAM', 'SETTINGS'] : (operator.permissions || []);
+       setCurrentSession({ account, businessId, operator: { ...operator, permissions: finalPermissions } });
+    }
   };
 
   if (!currentSession || !activeBusiness) return <AuthPage onLoginSuccess={handleLoginSuccess} accounts={accounts} onUpdateAccounts={setAccounts} />;
@@ -248,23 +260,25 @@ const AppContent: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex font-sans text-gray-900">
       <Sidebar currency={currency} onCurrencyChange={setCurrency} rates={rates} session={currentSession} activeBusiness={activeBusiness} onSwitchBusiness={() => setCurrentSession(null)} />
       <MobileNav isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} currency={currency} onCurrencyChange={setCurrency} rates={rates} onLogout={() => setCurrentSession(null)} session={currentSession} />
-      
       <main className="flex-1 md:ml-72 w-full min-h-screen flex flex-col">
         <div className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between px-4 py-3 shadow-sm">
           <div className="flex items-center gap-3">
              <button onClick={() => navigate('/profile')} className="p-2 bg-gray-50 border rounded-full text-emerald-600"><UserIcon size={20} /></button>
-             <h1 className="text-sm font-bold">{activeBusiness.name}</h1>
+             <h1 className="text-sm font-bold truncate max-w-[150px]">{activeBusiness.name}</h1>
           </div>
           <button onClick={() => setMobileMenuOpen(true)} className="p-2 bg-gray-50 border border-gray-200 rounded-lg"><Menu size={24} /></button>
         </div>
-
         <div className="flex-1">
           <Routes>
             <Route path="/appointments" element={<AppointmentsPage business={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} currentOperator={currentSession.operator.name} onCompleteAppointment={handleCompleteAppointment} onAddCustomer={handleAddCustomer} />} />
-            <Route path="/" element={can('VIEW_REPORTS') ? <Dashboard items={activeBusiness.items} sales={activeBusiness.sales} logs={activeBusiness.auditLogs} expenses={activeBusiness.expenses} customers={activeBusiness.customers} suppliers={activeBusiness.suppliers} currency={currency} exchangeRates={rates} onPayExpense={handlePayExpense} onRestock={handleRestock} onSaveExpense={(e) => updateActiveBusiness(b => ({...b, expenses: [...(b.expenses || []).filter(ex => ex.id !== e.id), e]}))} activeBusinessName={activeBusiness.name} currentOperator={currentSession.operator.name} onDeleteExpense={(id) => updateActiveBusiness(b => ({...b, expenses: b.expenses?.filter(e => e.id !== id)}))} /> : <Navigate to="/profile" replace />} />
+            <Route path="/" element={can('VIEW_REPORTS') ? <Dashboard items={activeBusiness.items} sales={activeBusiness.sales} logs={activeBusiness.auditLogs} expenses={activeBusiness.expenses} customers={activeBusiness.customers} suppliers={activeBusiness.suppliers} appointments={activeBusiness.appointments} currency={currency} exchangeRates={rates} onPayExpense={handlePayExpense} onRestock={handleRestock} onSaveExpense={(e) => updateActiveBusiness(b => ({...b, expenses: [...(b.expenses || []).filter(ex => ex.id !== e.id), e]}))} activeBusinessName={activeBusiness.name} currentOperator={currentSession.operator.name} onDeleteExpense={(id) => updateActiveBusiness(b => ({...b, expenses: b.expenses?.filter(e => e.id !== id)}))} onUpdateAppointmentStatus={handleUpdateAppointmentStatus} onCompleteAppointment={handleCompleteAppointment} /> : <Navigate to="/profile" replace />} />
             <Route path="/inventory" element={can('MANAGE_STOCK') ? <InventoryList items={activeBusiness.items} onDelete={(id) => updateActiveBusiness(b => ({...b, items: b.items.filter(i => i.id !== id)}))} onEdit={(i) => { setEditingItem(i); navigate('/add'); }} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} suppliers={activeBusiness.suppliers} /> : <Navigate to="/" replace />} />
-            <Route path="/add" element={can('MANAGE_STOCK') ? <AddItemForm onSave={(newVariants, orig) => { updateActiveBusiness(biz => ({...biz, items: [...biz.items.filter(i => i.name !== (orig || newVariants[0].name)), ...newVariants], auditLogs: [createLog('CREATE', `Produto: ${newVariants[0].name}`), ...(biz.auditLogs || [])]})); navigate('/inventory'); }} onCancel={() => navigate('/inventory')} editingItem={editingItem} allItems={activeBusiness.items} suppliers={activeBusiness.suppliers} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} /> : <Navigate to="/" replace />} />
-            <Route path="/sales" element={can('POS_SELL') ? <SalesPage items={activeBusiness.items} customers={activeBusiness.customers || []} onBatchSale={(cart, method, cust) => { const txId = generateID(); const date = new Date().toISOString(); const sales = cart.map(ci => ({id: generateID(), transactionId: txId, itemId: ci.item.id, itemName: ci.item.name, itemSize: ci.item.size, itemUnit: ci.item.unit, quantity: ci.quantity, totalRevenue: ci.quantity * (ci.item.sellingPrice || ci.item.price), totalProfit: ci.quantity * (ci.item.sellingPrice - ci.item.price), date, paymentMethod: method, operatorName: currentSession.operator.name, operatorId: currentSession.operator.id, customerId: cust?.id, customerName: cust?.name})); updateActiveBusiness(b => ({...b, sales: [...b.sales, ...sales], items: b.items.map(i => { const ci = cart.find(c => c.item.id === i.id); return ci ? {...i, quantity: i.quantity - ci.quantity} : i; }), auditLogs: [createLog('SALE', `Venda #${txId.slice(0,6)} Processada`), ...(b.auditLogs || [])]})); return sales; }} onAddCustomer={handleAddCustomer} currency={currency} exchangeRates={rates} /> : <Navigate to="/" replace />} />
+            <Route path="/add" element={can('MANAGE_STOCK') ? <AddItemForm onSave={(newVariants, orig) => { updateActiveBusiness(biz => ({...biz, items: [...biz.items.filter(i => i.name !== (orig || newVariants[0].name)), ...newVariants], auditLogs: [createLog('CREATE', `Produto: ${newVariants[0].name}`), ...(biz.auditLogs || [])]})); navigate('/inventory'); }} onCancel={() => navigate('/inventory')} editingItem={editingItem} allItems={activeBusiness.items} suppliers={activeBusiness.suppliers} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} onQuickAddSupplier={handleQuickAddSupplier} /> : <Navigate to="/" replace />} />
+            <Route path="/sales" element={can('POS_SELL') ? <SalesPage items={activeBusiness.items} customers={activeBusiness.customers || []} onBatchSale={(cart, method, cust) => { const txId = generateID(); const date = new Date().toISOString(); const sales = cart.map(ci => ({id: generateID(), transactionId: txId, itemId: ci.item.id, itemName: ci.item.name, itemSize: ci.item.size, itemUnit: ci.item.unit, quantity: ci.quantity, totalRevenue: ci.quantity * (ci.item.sellingPrice || ci.item.price), totalProfit: ci.quantity * (ci.item.sellingPrice - ci.item.price), date, paymentMethod: method, operatorName: currentSession.operator.name, operatorId: currentSession.operator.id, customerId: cust?.id, customerName: cust?.name})); updateActiveBusiness(b => {
+              const updatedItems = b.items.map(i => { const ci = cart.find(c => c.item.id === i.id); return ci ? {...i, quantity: i.quantity - ci.quantity} : i; });
+              const updatedCustomers = cust ? b.customers.map(c => c.id === cust.id ? { ...c, lastVisit: new Date().toISOString(), totalSpent: c.totalSpent + cart.reduce((acc, ci) => acc + (ci.quantity * (ci.item.sellingPrice || ci.item.price)), 0) } : c) : b.customers;
+              return {...b, sales: [...b.sales, ...sales], items: updatedItems, customers: updatedCustomers, auditLogs: [createLog('SALE', `Venda #${txId.slice(0,6)} Processada`), ...(b.auditLogs || [])]};
+            }); return sales; }} onAddCustomer={handleAddCustomer} currency={currency} exchangeRates={rates} /> : <Navigate to="/" replace />} />
             <Route path="/profile" element={<ProfilePage session={currentSession} activeBusiness={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} onAddBusiness={(b) => setAccounts(p => p.map(a => a.id === currentSession.account.id ? {...a, businesses: [...a.businesses, b]} : a))} onSwitchBusinessSecure={(id) => setCurrentSession({...currentSession, businessId: id})} currency={currency} exchangeRates={rates} onRenewSubscription={(id, plan) => {}} />} />
             <Route path="/settings" element={can('SETTINGS') ? <Settings rates={rates} onUpdateRate={(c, r) => setRates(p => ({...p, [c]: r}))} onResetRates={() => setRates(DEFAULT_EXCHANGE_RATES)} onClearInventory={() => updateActiveBusiness(b => ({...b, items: []}))} /> : <Navigate to="/" replace />} />
             <Route path="/suppliers" element={can('MANAGE_STOCK') ? <SuppliersPage business={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} currentOperator={currentSession.operator.name} /> : <Navigate to="/" replace />} />
@@ -273,19 +287,18 @@ const AppContent: React.FC = () => {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
-
         {activeReceipt && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-[fadeIn_0.2s]">
              <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden animate-[scaleIn_0.2s]">
                 <div className="p-8 bg-emerald-600 text-white text-center">
                    <CheckCircle className="mx-auto mb-4" size={48} />
                    <h3 className="text-2xl font-bold font-heading">Sucesso!</h3>
-                   <p className="text-emerald-100 mt-1">Registo financeiro concluído.</p>
+                   <p className="text-emerald-100 mt-1">Venda registada com sucesso.</p>
                 </div>
                 <div className="p-6">
                    <div className="border-b border-dashed border-gray-200 pb-4 mb-4">
                       {activeReceipt.records.map((r, i) => (
-                         <div key={i} className="flex justify-between items-center text-sm">
+                         <div key={i} className="flex justify-between items-center text-sm mb-1">
                             <span className="font-bold text-gray-800">{r.itemName}</span>
                             <span className="font-bold">{CURRENCY_SYMBOLS[currency]} {r.totalRevenue.toFixed(2)}</span>
                          </div>
@@ -295,8 +308,7 @@ const AppContent: React.FC = () => {
                       <span>Total Recebido</span>
                       <span>{CURRENCY_SYMBOLS[currency]} {activeReceipt.total.toFixed(2)}</span>
                    </div>
-                   <p className="text-[10px] text-center text-gray-400 uppercase font-bold mb-4">Atendido por: {currentSession.operator.name}</p>
-                   <button onClick={() => setActiveReceipt(null)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center transition-all active:scale-95">
+                   <button onClick={() => setActiveReceipt(null)} className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center active:scale-95">
                       <Receipt size={18} className="mr-2" /> Novo Recebimento
                    </button>
                 </div>

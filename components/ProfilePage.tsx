@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { CurrentSession, Business, Employee, Permission, SubscriptionPlan, AuditLogEntry } from '../types';
-import { CURRENCY_SYMBOLS, BUSINESS_CATEGORIES, PERMISSION_LABELS, generateID } from '../constants';
+// Fixed: Removed missing PERMISSION_LABELS from imports
+import { CURRENCY_SYMBOLS, BUSINESS_CATEGORIES, generateID } from '../constants';
 import { TrendingUp, User as UserIcon, Plus, Users, Key, Briefcase, Trash2, Lock, Bot, CreditCard, Edit2, Eye, EyeOff, X, Save } from 'lucide-react';
 import AIChef from './AIChef';
 import SubscriptionPage from './SubscriptionPage';

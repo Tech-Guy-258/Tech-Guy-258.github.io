@@ -10,21 +10,12 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
  */
 export const analyzeProductImage = async (base64Image: string): Promise<Partial<InventoryItem> | null> => {
   try {
-    // Fixed: Prompt updated to include the schema since native schema config is not supported for gemini-2.5-flash-image
     const prompt = `Analise esta imagem de um produto de mercearia. 
-    Identifique o nome do produto, a categoria mais provável, a unidade de medida e o TAMANHO/PESO LÍQUIDO da embalagem.
-    Responda APENAS com um objeto JSON válido seguindo este formato:
-    {
-      "name": "string",
-      "category": "string (deve ser um dos: ${Object.values(Category).join(', ')})",
-      "unit": "string (deve ser um dos: ${Object.values(Unit).join(', ')})",
-      "size": number,
-      "price": number (preço de custo estimado em MZN)
-    }`;
+    Identifique o nome do produto, a categoria mais provável, a unidade de medida e o TAMANHO/PESO LÍQUIDO da embalagem.`;
 
-    // Fixed: Removed responseMimeType and responseSchema as they are not supported for nano banana series models (like gemini-2.5-flash-image)
+    // Fixed: Updated to 'gemini-3-flash-preview' for vision analysis and enabled responseSchema
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           {
@@ -36,6 +27,29 @@ export const analyzeProductImage = async (base64Image: string): Promise<Partial<
           { text: prompt }
         ]
       },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            category: { 
+              type: Type.STRING,
+              description: `Categoria do produto (deve ser um dos: ${Object.values(Category).join(', ')})`
+            },
+            unit: { 
+              type: Type.STRING,
+              description: `Unidade de medida (deve ser um dos: ${Object.values(Unit).join(', ')})`
+            },
+            size: { type: Type.NUMBER },
+            price: { 
+              type: Type.NUMBER,
+              description: "preço de custo estimado em MZN"
+            }
+          },
+          required: ["name", "category", "unit", "size"]
+        }
+      }
     });
 
     if (response.text) {
