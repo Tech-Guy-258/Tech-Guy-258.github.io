@@ -8,7 +8,16 @@
   ],
   "headers": [
     {
-      "source": "/(.*)\\.(tsx|ts)",
+      "source": "/(.*)\\.tsx",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.ts",
       "headers": [
         {
           "key": "Content-Type",
