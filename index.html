@@ -11,20 +11,19 @@
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
       body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #111827; margin: 0; overflow-x: hidden; }
-      #app-loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc; z-index: 9999; }
+      #app-loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc; z-index: 9999; transition: opacity 0.5s ease; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .spinner { width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 1s linear infinite; }
     </style>
 
-    <!-- 2. Scripts Core (Carregamento Síncrono) -->
+    <!-- 2. Scripts Core (Carregamento Síncrono via UMD) -->
     <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script>
-      // Garante que o processo e as variáveis globais existem antes de carregar os ficheiros
+      // Mock de ambiente para o SDK da Google e React
       window.process = { env: { API_KEY: "" } };
-      // Mapeamento manual para o Babel não dar "React is not defined"
       window.React = React;
       window.ReactDOM = ReactDOM;
     </script>
@@ -32,12 +31,12 @@
   <body>
     <div id="app-loader">
       <div class="spinner"></div>
-      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">A carregar Flip360...</p>
+      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">A iniciar Flip360...</p>
     </div>
 
     <div id="root"></div>
 
-    <!-- 3. Import Map (Apenas para bibliotecas que não têm UMD simples) -->
+    <!-- 3. Import Map para o Babel Standalone -->
     <script type="importmap">
 {
   "imports": {
@@ -55,22 +54,37 @@
 }
 </script>
 
-    <!-- 4. Carregamento da aplicação via Babel -->
-    <script type="text/babel" data-presets="typescript,react" data-type="module" src="./index.tsx"></script>
+    <!-- 4. Script da Aplicação -->
+    <!-- Removida a barra inicial para evitar problemas de root no GitHub Pages -->
+    <script type="text/babel" data-presets="typescript,react" data-type="module" src="index.tsx"></script>
 
     <script>
-      // Monitor de montagem
-      const checkApp = setInterval(() => {
+      // Gestor de ecrã de carregamento
+      const checkAppInterval = setInterval(() => {
         const root = document.getElementById('root');
-        if (root && root.hasChildNodes()) {
+        if (root && root.children.length > 0) {
           const loader = document.getElementById('app-loader');
           if (loader) {
             loader.style.opacity = '0';
             setTimeout(() => loader.remove(), 500);
           }
-          clearInterval(checkApp);
+          clearInterval(checkAppInterval);
         }
       }, 500);
+
+      // Fallback para erros de carregamento após 15 segundos
+      setTimeout(() => {
+        const loader = document.getElementById('app-loader');
+        if (loader && document.getElementById('root').children.length === 0) {
+          loader.innerHTML = `
+            <div style="text-align:center; padding: 20px;">
+              <p style="color: #ef4444; font-weight: bold;">Erro de Carregamento</p>
+              <p style="font-size: 12px; color: #64748b;">Verifique a consola (F12) ou a sua ligação.</p>
+              <button onclick="location.reload()" style="margin-top:15px; background:#059669; color:white; padding:8px 16px; border-radius:8px; border:none; cursor:pointer;">Recarregar</button>
+            </div>
+          `;
+        }
+      }, 15000);
     </script>
   </body>
 </html>
