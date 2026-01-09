@@ -146,6 +146,7 @@ export interface Expense {
   type: 'fixed' | 'variable'; 
   paymentDay?: number;
   nextDueDate: string;
+  alertThreshold?: number; // Dias antes do vencimento para alertar
   isPaid: boolean;
   lastPaidDate?: string;
   paymentMethod?: PaymentMethod;
