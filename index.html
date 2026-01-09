@@ -8,15 +8,22 @@
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#059669">
     
-    <script>
-      // Mock de ambiente para o browser
-      window.process = { env: { API_KEY: "" } };
-    </script>
-
-    <!-- Core Engine -->
+    <!-- Scripts Core (Carregamento Síncrono para garantir disponibilidade) -->
+    <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <script>
+      // Mock de ambiente e mapeamento de módulos para o Babel
+      window.process = { env: { API_KEY: "" } };
+      
+      // Mapeamento manual para o sistema de imports do ESM.sh que o código TSX usa
+      // Isso resolve o erro "Cannot use import statement outside a module"
+      window.React = React;
+      window.ReactDOM = ReactDOM;
+    </script>
+
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
       body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #111827; margin: 0; overflow-x: hidden; }
@@ -43,38 +50,37 @@
 </script>
   </head>
   <body>
-    <!-- Loader Inicial -->
     <div id="app-loader">
       <div class="spinner"></div>
-      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">Iniciando Sistema...</p>
+      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">Iniciando Flip360...</p>
     </div>
 
     <div id="root"></div>
 
-    <!-- O segredo para o GitHub Pages: Babel precisa ler o .tsx como texto antes de compilar -->
-    <script type="text/babel" data-presets="typescript,react" src="./index.tsx"></script>
+    <!-- O data-type="module" é essencial aqui para o Babel tratar os imports corretamente -->
+    <script type="text/babel" data-presets="typescript,react" data-type="module" src="./index.tsx"></script>
 
     <script>
-      // Monitor de montagem do React
+      // Monitor de montagem
       const checkApp = setInterval(() => {
         const root = document.getElementById('root');
-        const loader = document.getElementById('app-loader');
         if (root && root.hasChildNodes()) {
+          const loader = document.getElementById('app-loader');
           if (loader) {
             loader.style.opacity = '0';
             setTimeout(() => loader.remove(), 500);
           }
           clearInterval(checkApp);
         }
-      }, 100);
+      }, 200);
 
-      // Limite de espera (12 segundos)
+      // Fallback de erro
       setTimeout(() => {
-        const loaderText = document.querySelector('#app-loader p');
-        if (loaderText && document.getElementById('app-loader')) {
-          loaderText.innerHTML = 'O sistema está a demorar mais do que o comum.<br><small style="font-weight:normal; opacity:0.7;">Verifique a sua ligação ou tente recarregar.</small><br><button onclick="location.reload()" style="margin-top:15px; background:#059669; color:white; padding:8px 16px; border-radius:10px; border:none; cursor:pointer; font-weight:bold;">Recarregar App</button>';
+        const loader = document.getElementById('app-loader');
+        if (loader && !document.getElementById('root').hasChildNodes()) {
+          loader.querySelector('p').innerHTML = 'Erro ao carregar módulos.<br><small style="opacity:0.6">Verifique a consola (F12) para detalhes.</small><br><button onclick="location.reload()" style="margin-top:10px; background:#059669; color:white; padding:8px 16px; border-radius:10px; border:none; font-weight:bold; cursor:pointer;">Tentar Novamente</button>';
         }
-      }, 12000);
+      }, 15000);
     </script>
   </body>
 </html>
