@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Flip360 - Gestão de Stock Inteligente</title>
     
-    <!-- 1. Estilos Base -->
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
@@ -16,14 +16,15 @@
       .spinner { width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 1s linear infinite; }
     </style>
 
-    <!-- 2. Scripts Core (Carregamento Síncrono via UMD) -->
+    <!-- React 19 UMD - Carregamento Garantido -->
     <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script>
-      // Mock de ambiente para o SDK da Google e React
+      // Definições globais críticas
       window.process = { env: { API_KEY: "" } };
+      // Garantia de mapeamento global
       window.React = React;
       window.ReactDOM = ReactDOM;
     </script>
@@ -36,7 +37,7 @@
 
     <div id="root"></div>
 
-    <!-- 3. Import Map para o Babel Standalone -->
+    <!-- Import Map para dependências do ESM.sh -->
     <script type="importmap">
 {
   "imports": {
@@ -54,12 +55,11 @@
 }
 </script>
 
-    <!-- 4. Script da Aplicação -->
-    <!-- Removida a barra inicial para evitar problemas de root no GitHub Pages -->
+    <!-- Carregamento da aplicação via Babel. Removido o ./ para compatibilidade total -->
     <script type="text/babel" data-presets="typescript,react" data-type="module" src="index.tsx"></script>
 
     <script>
-      // Gestor de ecrã de carregamento
+      // Monitor de montagem: Remove o loader quando o React injetar conteúdo no root
       const checkAppInterval = setInterval(() => {
         const root = document.getElementById('root');
         if (root && root.children.length > 0) {
@@ -70,21 +70,22 @@
           }
           clearInterval(checkAppInterval);
         }
-      }, 500);
+      }, 300);
 
-      // Fallback para erros de carregamento após 15 segundos
+      // Tratamento de erro de timeout (20 segundos)
       setTimeout(() => {
         const loader = document.getElementById('app-loader');
-        if (loader && document.getElementById('root').children.length === 0) {
+        const root = document.getElementById('root');
+        if (loader && root && root.children.length === 0) {
           loader.innerHTML = `
-            <div style="text-align:center; padding: 20px;">
-              <p style="color: #ef4444; font-weight: bold;">Erro de Carregamento</p>
-              <p style="font-size: 12px; color: #64748b;">Verifique a consola (F12) ou a sua ligação.</p>
-              <button onclick="location.reload()" style="margin-top:15px; background:#059669; color:white; padding:8px 16px; border-radius:8px; border:none; cursor:pointer;">Recarregar</button>
+            <div style="text-align:center; padding: 20px; font-family: sans-serif;">
+              <p style="color: #ef4444; font-weight: bold; font-size: 18px;">Erro de Inicialização</p>
+              <p style="font-size: 14px; color: #64748b; margin-top: 8px;">O browser bloqueou o carregamento dos scripts ou a ligação falhou.</p>
+              <button onclick="location.reload()" style="margin-top:20px; background:#059669; color:white; padding:12px 24px; border-radius:12px; border:none; cursor:pointer; font-weight:bold;">Tentar Novamente</button>
             </div>
           `;
         }
-      }, 15000);
+      }, 20000);
     </script>
   </body>
 </html>
