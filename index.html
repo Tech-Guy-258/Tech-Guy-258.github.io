@@ -5,25 +5,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Flip360 - Gestão de Stock Inteligente</title>
-    <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#059669">
     
-    <!-- Scripts Core (Carregamento Síncrono para garantir disponibilidade) -->
-    <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 1. Estilos Base -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script>
-      // Mock de ambiente e mapeamento de módulos para o Babel
-      window.process = { env: { API_KEY: "" } };
-      
-      // Mapeamento manual para o sistema de imports do ESM.sh que o código TSX usa
-      // Isso resolve o erro "Cannot use import statement outside a module"
-      window.React = React;
-      window.ReactDOM = ReactDOM;
-    </script>
-
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
       body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #111827; margin: 0; overflow-x: hidden; }
@@ -32,6 +16,28 @@
       .spinner { width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 1s linear infinite; }
     </style>
 
+    <!-- 2. Scripts Core (Carregamento Síncrono) -->
+    <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script>
+      // Garante que o processo e as variáveis globais existem antes de carregar os ficheiros
+      window.process = { env: { API_KEY: "" } };
+      // Mapeamento manual para o Babel não dar "React is not defined"
+      window.React = React;
+      window.ReactDOM = ReactDOM;
+    </script>
+  </head>
+  <body>
+    <div id="app-loader">
+      <div class="spinner"></div>
+      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">A carregar Flip360...</p>
+    </div>
+
+    <div id="root"></div>
+
+    <!-- 3. Import Map (Apenas para bibliotecas que não têm UMD simples) -->
     <script type="importmap">
 {
   "imports": {
@@ -48,16 +54,8 @@
   }
 }
 </script>
-  </head>
-  <body>
-    <div id="app-loader">
-      <div class="spinner"></div>
-      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">Iniciando Flip360...</p>
-    </div>
 
-    <div id="root"></div>
-
-    <!-- O data-type="module" é essencial aqui para o Babel tratar os imports corretamente -->
+    <!-- 4. Carregamento da aplicação via Babel -->
     <script type="text/babel" data-presets="typescript,react" data-type="module" src="./index.tsx"></script>
 
     <script>
@@ -72,15 +70,7 @@
           }
           clearInterval(checkApp);
         }
-      }, 200);
-
-      // Fallback de erro
-      setTimeout(() => {
-        const loader = document.getElementById('app-loader');
-        if (loader && !document.getElementById('root').hasChildNodes()) {
-          loader.querySelector('p').innerHTML = 'Erro ao carregar módulos.<br><small style="opacity:0.6">Verifique a consola (F12) para detalhes.</small><br><button onclick="location.reload()" style="margin-top:10px; background:#059669; color:white; padding:8px 16px; border-radius:10px; border:none; font-weight:bold; cursor:pointer;">Tentar Novamente</button>';
-        }
-      }, 15000);
+      }, 500);
     </script>
   </body>
 </html>
