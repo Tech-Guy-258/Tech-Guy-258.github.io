@@ -5,33 +5,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Flip360 - Gestão de Stock Inteligente</title>
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#059669">
     
     <script>
-      // Mock básico de ambiente
       window.process = { env: { API_KEY: "" } };
-      
-      // Captura de erros globais para debug
       window.onerror = function(msg, url, line, col, error) {
-        console.error("Erro Crítico de Arranque:", msg, "\nNo ficheiro:", url);
+        console.error("Erro Crítico:", msg, "\nFicheiro:", url);
         const loaderText = document.querySelector('#app-loader p');
         if (loaderText) {
-          loaderText.innerHTML = '<span style="color: #ef4444;">Erro ao iniciar: ' + msg + '</span><br><button onclick="location.reload()" style="margin-top:10px; padding:5px 10px; background:#059669; color:white; border:none; border-radius:5px;">Tentar Novamente</button>';
+          loaderText.innerHTML = '<span style="color: #ef4444;">Erro ao iniciar: ' + msg + '</span><br><button onclick="location.reload()" style="margin-top:10px; padding:8px 16px; background:#059669; color:white; border:none; border-radius:12px; cursor:pointer;">Tentar Novamente</button>';
         }
       };
     </script>
 
-    <!-- Babel para compilar TSX no browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
-      body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #111827; margin: 0; }
+      body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #111827; margin: 0; overflow-x: hidden; }
       #app-loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8fafc; z-index: 9999; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .spinner { width: 48px; height: 48px; border: 4px solid #e2e8f0; border-top-color: #059669; border-radius: 50%; animation: spin 1s linear infinite; }
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
     </style>
 
     <script type="importmap">
@@ -45,8 +45,8 @@
     "lucide-react": "https://esm.sh/lucide-react@0.474.0?deps=react@19.0.0",
     "recharts": "https://esm.sh/recharts@2.15.0?deps=react@19.0.0",
     "jspdf": "https://esm.sh/jspdf@2.5.2",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
   }
 }
 </script>
@@ -54,36 +54,28 @@
   <body>
     <div id="app-loader">
       <div class="spinner"></div>
-      <p style="margin-top: 16px; font-weight: 600; color: #475569; font-family: sans-serif; text-align: center;">A iniciar sistema...</p>
+      <p style="margin-top: 16px; font-weight: 600; color: #475569; text-align: center; font-family: sans-serif;">A carregar Flip360...</p>
     </div>
 
     <div id="root"></div>
 
-    <!-- Script de entrada usando Babel -->
-    <script 
-      type="text/babel" 
-      data-type="module" 
-      data-presets="typescript,react" 
-      src="/index.tsx">
-    </script>
+    <script type="text/babel" data-type="module" data-presets="typescript,react" src="./index.tsx"></script>
 
     <script>
-      // Monitorização do carregamento: se em 8 segundos não houver nada no root, algo falhou.
       setTimeout(() => {
         const root = document.getElementById('root');
         const loader = document.getElementById('app-loader');
         if (root && !root.hasChildNodes() && loader) {
-          loader.querySelector('p').innerHTML = 'O carregamento está a demorar mais do que o esperado.<br><button onclick="location.reload()" style="margin-top:15px; padding:8px 16px; background:#059669; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Recarregar</button>';
+          loader.querySelector('p').innerHTML = 'O servidor está a demorar a responder.<br><button onclick="location.reload()" style="margin-top:15px; padding:10px 20px; background:#059669; color:white; border:none; border-radius:15px; font-weight:bold; cursor:pointer; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">Reiniciar Aplicação</button>';
         }
-      }, 8000);
+      }, 12000);
 
-      // Observer para remover o loader assim que o React montar a app
       const observer = new MutationObserver(() => {
         if (document.getElementById('root').hasChildNodes()) {
           const loader = document.getElementById('app-loader');
           if (loader) {
             loader.style.opacity = '0';
-            loader.style.pointerEvents = 'none';
+            loader.style.transition = 'opacity 0.5s ease';
             setTimeout(() => loader.remove(), 500);
           }
           observer.disconnect();

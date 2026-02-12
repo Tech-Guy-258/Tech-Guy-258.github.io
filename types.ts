@@ -199,7 +199,7 @@ export interface Reseller {
   phone: string;
   secondaryPhone?: string;
   address: string;
-  idDocument?: string; // BI ou NUIT para segurança
+  idDocument?: string; 
   notes?: string;
   commissionType: 'percentage' | 'fixed';
   commissionValue: number;
