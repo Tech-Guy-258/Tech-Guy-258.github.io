@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, List, PlusCircle, Store, Globe, Settings, Trash2, ShoppingCart, Wifi, WifiOff, LogOut, User, CreditCard, AlertTriangle, Clock, Truck, Users, Calendar } from 'lucide-react';
+import { LayoutDashboard, List, PlusCircle, Store, Globe, Settings, Trash2, ShoppingCart, Wifi, WifiOff, LogOut, User, CreditCard, AlertTriangle, Clock, Truck, Users, Calendar, Handshake } from 'lucide-react';
 import { APP_NAME } from '../constants';
 import { CurrencyCode, CurrentSession, Business, Permission } from '../types';
 
@@ -51,20 +51,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currency, onCurrencyChange, rates, se
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', show: can('VIEW_REPORTS') },
     { to: '/sales', icon: ShoppingCart, label: 'Caixa (POS)', show: can('POS_SELL') }, 
-    
-    // Agendamentos (NOVO - Visível para todos para garantir acesso)
     { to: '/appointments', icon: Calendar, label: 'Agendamentos', show: true },
-
-    // Gestão de Stock
     { to: '/inventory', icon: List, label: 'Inventário', show: can('MANAGE_STOCK') },
+    { to: '/resellers', icon: Handshake, label: 'Revendedores', show: can('MANAGE_STOCK') },
     { to: '/add', icon: PlusCircle, label: 'Adicionar', show: can('MANAGE_STOCK') },
-    
-    // Fornecedores (Apenas Gestão de Stock)
     { to: '/suppliers', icon: Truck, label: 'Fornecedores', show: can('MANAGE_STOCK') },
-    
-    // Clientes (Visível para Gestão OU Vendas - para registar fidelização no caixa)
     { to: '/customers', icon: Users, label: 'Clientes', show: can('MANAGE_STOCK') || can('POS_SELL') },
-    
     { to: '/settings', icon: Settings, label: 'Definições', show: can('SETTINGS') },
     { to: '/remove', icon: Trash2, label: 'Lixo', show: can('MANAGE_STOCK') },
   ];
@@ -83,7 +75,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currency, onCurrencyChange, rates, se
         </div>
       </div>
       
-      {/* Business Info */}
       <div className="px-4 mb-6">
         {activeBusiness && (
           <div 

@@ -15,6 +15,7 @@ import ProfilePage from './components/ProfilePage';
 import SuppliersPage from './components/SuppliersPage';
 import CustomersPage from './components/CustomersPage';
 import AppointmentsPage from './components/AppointmentsPage'; 
+import ResellersPage from './components/ResellersPage';
 import { InventoryItem, CurrencyCode, SaleRecord, Account, Business, CurrentSession, PaymentMethod, Permission, AuditLogEntry, Customer, Expense, Appointment, AppointmentStatus, Supplier } from './types';
 import { DEFAULT_EXCHANGE_RATES, APP_NAME, getDemoAccount, APP_VERSION, generateID, CURRENCY_SYMBOLS } from './constants';
 import { Menu, X, LogOut, User as UserIcon, Receipt, CheckCircle, Smartphone, User, Clock, Building2 } from 'lucide-react';
@@ -50,6 +51,7 @@ const MobileNav = ({
               {can('POS_SELL') && <NavButton to="/sales" label="Caixa (Vendas)" />}
               <NavButton to="/appointments" label="Agendamentos" />
               {can('MANAGE_STOCK') && <NavButton to="/inventory" label="Inventário" />}
+              {can('MANAGE_STOCK') && <NavButton to="/resellers" label="Revendedores" />}
               {can('MANAGE_STOCK') && <NavButton to="/add" label="Adicionar Produto" />}
               {can('MANAGE_STOCK') && <NavButton to="/suppliers" label="Fornecedores" />}
               {(can('MANAGE_STOCK') || can('POS_SELL')) && <NavButton to="/customers" label="Clientes" />}
@@ -272,6 +274,7 @@ const AppContent: React.FC = () => {
             <Route path="/appointments" element={<AppointmentsPage business={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} currentOperator={currentSession.operator.name} onCompleteAppointment={handleCompleteAppointment} onAddCustomer={handleAddCustomer} />} />
             <Route path="/" element={can('VIEW_REPORTS') ? <Dashboard items={activeBusiness.items} sales={activeBusiness.sales} logs={activeBusiness.auditLogs} expenses={activeBusiness.expenses} customers={activeBusiness.customers} suppliers={activeBusiness.suppliers} appointments={activeBusiness.appointments} currency={currency} exchangeRates={rates} onPayExpense={handlePayExpense} onRestock={handleRestock} onSaveExpense={(e) => updateActiveBusiness(b => ({...b, expenses: [...(b.expenses || []).filter(ex => ex.id !== e.id), e]}))} activeBusinessName={activeBusiness.name} currentOperator={currentSession.operator.name} onDeleteExpense={(id) => updateActiveBusiness(b => ({...b, expenses: b.expenses?.filter(e => e.id !== id)}))} onUpdateAppointmentStatus={handleUpdateAppointmentStatus} onCompleteAppointment={handleCompleteAppointment} /> : <Navigate to="/profile" replace />} />
             <Route path="/inventory" element={can('MANAGE_STOCK') ? <InventoryList items={activeBusiness.items} onDelete={(id) => updateActiveBusiness(b => ({...b, items: b.items.filter(i => i.id !== id)}))} onEdit={(i) => { setEditingItem(i); navigate('/add'); }} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} suppliers={activeBusiness.suppliers} /> : <Navigate to="/" replace />} />
+            <Route path="/resellers" element={can('MANAGE_STOCK') ? <ResellersPage business={activeBusiness} onUpdateBusiness={(b) => updateActiveBusiness(() => b)} currentOperator={currentSession.operator.name} currency={currency} exchangeRates={rates} /> : <Navigate to="/" replace />} />
             <Route path="/add" element={can('MANAGE_STOCK') ? <AddItemForm onSave={(newVariants, orig) => { updateActiveBusiness(biz => ({...biz, items: [...biz.items.filter(i => i.name !== (orig || newVariants[0].name)), ...newVariants], auditLogs: [createLog('CREATE', `Produto: ${newVariants[0].name}`), ...(biz.auditLogs || [])]})); navigate('/inventory'); }} onCancel={() => navigate('/inventory')} editingItem={editingItem} allItems={activeBusiness.items} suppliers={activeBusiness.suppliers} currency={currency} exchangeRates={rates} activeBusinessCategory={activeBusiness.category} onQuickAddSupplier={handleQuickAddSupplier} /> : <Navigate to="/" replace />} />
             <Route path="/sales" element={can('POS_SELL') ? <SalesPage items={activeBusiness.items} customers={activeBusiness.customers || []} onBatchSale={(cart, method, cust) => { const txId = generateID(); const date = new Date().toISOString(); const sales = cart.map(ci => ({id: generateID(), transactionId: txId, itemId: ci.item.id, itemName: ci.item.name, itemSize: ci.item.size, itemUnit: ci.item.unit, quantity: ci.quantity, totalRevenue: ci.quantity * (ci.item.sellingPrice || ci.item.price), totalProfit: ci.quantity * (ci.item.sellingPrice - ci.item.price), date, paymentMethod: method, operatorName: currentSession.operator.name, operatorId: currentSession.operator.id, customerId: cust?.id, customerName: cust?.name})); updateActiveBusiness(b => {
               const updatedItems = b.items.map(i => { const ci = cart.find(c => c.item.id === i.id); return ci ? {...i, quantity: i.quantity - ci.quantity} : i; });
@@ -287,7 +290,7 @@ const AppContent: React.FC = () => {
           </Routes>
         </div>
 
-        {/* RECIBO DIGITAL ULTRA-DETALHADO (VENDAS E AGENDAMENTOS) */}
+        {/* RECIBO DIGITAL ULTRA-DETALHADO */}
         {activeReceipt && (
           <div className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-4 animate-[fadeIn_0.2s]">
              <div className="bg-white w-full max-w-sm rounded-[4rem] shadow-2xl overflow-hidden animate-[scaleIn_0.3s_ease-out]">
@@ -329,12 +332,6 @@ const AppContent: React.FC = () => {
                             <span>Operador</span>
                             <span className="text-slate-800">{activeReceipt.records[0]?.operatorName}</span>
                          </div>
-                         {activeReceipt.records[0]?.customerName && (
-                            <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
-                               <span>Cliente</span>
-                               <span className="text-indigo-600 flex items-center gap-1.5"><User size={12}/> {activeReceipt.records[0].customerName}</span>
-                            </div>
-                         )}
                       </div>
 
                       <div className="flex justify-between items-center pt-2">

@@ -99,7 +99,7 @@ export type PaymentProvider = 'mpesa' | 'emola';
 
 export interface AuditLogEntry {
   id: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SALE' | 'LOGIN' | 'SUBSCRIPTION' | 'CLOSE_REGISTER' | 'EXPENSE' | 'APPOINTMENT';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SALE' | 'LOGIN' | 'SUBSCRIPTION' | 'CLOSE_REGISTER' | 'EXPENSE' | 'APPOINTMENT' | 'RESELLER';
   details: string;
   operatorName: string;
   timestamp: string;
@@ -146,7 +146,7 @@ export interface Expense {
   type: 'fixed' | 'variable'; 
   paymentDay?: number;
   nextDueDate: string;
-  alertThreshold?: number; // Dias antes do vencimento para alertar
+  alertThreshold?: number; 
   isPaid: boolean;
   lastPaidDate?: string;
   paymentMethod?: PaymentMethod;
@@ -172,6 +172,44 @@ export interface Appointment {
   createdAt: string;
 }
 
+export interface ResellerItem {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  priceAtDelivery: number;
+}
+
+export interface DeliveryBatch {
+  id: string;
+  date: string;
+  items: ResellerItem[];
+  totalValue: number;
+}
+
+export interface ResellerPayment {
+  id: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+}
+
+export interface Reseller {
+  id: string; // Nome curto identificador
+  name: string;
+  phone: string;
+  secondaryPhone?: string;
+  address: string;
+  idDocument?: string; // BI ou NUIT para segurança
+  notes?: string;
+  commissionType: 'percentage' | 'fixed';
+  commissionValue: number;
+  totalDebt: number; 
+  totalPaid: number; 
+  batches: DeliveryBatch[];
+  payments: ResellerPayment[];
+  createdAt: string;
+}
+
 export interface Business {
   id: string;
   name: string;
@@ -185,6 +223,7 @@ export interface Business {
   customers: Customer[];
   expenses: Expense[];
   appointments?: Appointment[];
+  resellers?: Reseller[];
   auditLogs: AuditLogEntry[];
 }
 
