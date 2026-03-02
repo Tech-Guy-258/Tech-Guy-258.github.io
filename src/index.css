@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-diva-gold: #E3C58A;
+  --color-diva-blue: #0D3B66;
+  --color-diva-blue-dark: #082541;
+  
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+}
