@@ -61,7 +61,18 @@ const Navbar = ({ onNavigate, currentPage }: { onNavigate: (page: string) => voi
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center">
           <div className="flex-shrink-0 flex items-center cursor-pointer" onClick={() => onNavigate('home')}>
-            <span className={`text-3xl font-bold tracking-tighter ${scrolled || currentPage !== 'home' ? 'text-diva-blue' : 'text-white'}`}>
+            <img 
+              src="/logo.png" 
+              alt="Diva Logo" 
+              className={`h-10 w-auto transition-all duration-300 ${scrolled || currentPage !== 'home' ? '' : 'brightness-0 invert'}`}
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                // Fallback to text if image fails
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+              }}
+            />
+            <span className={`hidden text-3xl font-bold tracking-tighter ${scrolled || currentPage !== 'home' ? 'text-diva-blue' : 'text-white'}`}>
               <span className="text-diva-gold">d</span>iva
             </span>
           </div>
@@ -146,7 +157,7 @@ const Navbar = ({ onNavigate, currentPage }: { onNavigate: (page: string) => voi
 
 const Hero = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
   return (
-    <section id="home" className="relative h-screen flex items-center overflow-hidden">
+    <section id="home" className="relative min-h-screen flex items-center overflow-hidden py-20 md:py-0">
       {/* Background with Overlay */}
       <div className="absolute inset-0 z-0">
         <img 
@@ -158,7 +169,7 @@ const Hero = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
         <div className="absolute inset-0 bg-diva-blue/80 mix-blend-multiply"></div>
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-10">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -168,8 +179,9 @@ const Hero = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
           <h1 className="text-5xl md:text-7xl font-bold text-white leading-tight mb-6">
             Excelência em <span className="text-diva-gold italic">Soluções</span> para o seu Escritório.
           </h1>
+          <p className="text-diva-gold font-bold tracking-[0.2em] uppercase text-sm mb-4">Parceiro para o seu sucesso</p>
           <p className="text-xl text-gray-200 mb-10 leading-relaxed">
-            A Diva oferece o que há de melhor em material de escritório, mobiliário e tecnologia para transformar o seu ambiente de trabalho em um espaço de alta produtividade.
+            A Diva é uma sociedade vocacionada em Procurement e Logística, oferecendo o que há de melhor em material de escritório, mobiliário e tecnologia.
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
             <button 
@@ -199,32 +211,41 @@ const Hero = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
 
 const Partners = () => {
   const partners = [
-    "HP", "Faber-Castell", "Bic", "3M", "Xerox", "Canon"
+    "ABB", "Pewag", "New Holland", "Assa Abloy", "CAT", "John Deere", "3M", "Gedore", "Dell", "Targus", "Symantec", "HP", "Dräger", "APC", "Javlin", "Uvex"
   ];
 
   return (
-    <section className="py-12 bg-gray-50 border-b border-gray-100">
+    <section className="py-12 bg-gray-50 border-b border-gray-100 overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <p className="text-center text-sm font-semibold text-gray-400 uppercase tracking-widest mb-8">
-          Nossos Parceiros Estratégicos
+          Nossos Parceiros e Fabricantes
         </p>
-        <div className="flex flex-wrap justify-center items-center gap-8 md:gap-16 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
+        <div className="flex flex-wrap justify-center items-center gap-6 md:gap-12 opacity-60 grayscale hover:grayscale-0 transition-all duration-500 mb-8">
           {partners.map((partner) => (
-            <span key={partner} className="text-2xl md:text-3xl font-bold text-diva-blue">
+            <span key={partner} className="text-lg md:text-xl font-bold text-diva-blue whitespace-nowrap">
               {partner}
             </span>
           ))}
         </div>
+        <p className="text-center text-xs text-gray-400 italic">
+          Produtos adquiridos em distribuidores autorizados com garantia direta do fabricante.
+        </p>
       </div>
     </section>
   );
 };
 
 const About = () => {
+  const values = [
+    { title: "Missão", content: "Fornecer produtos e serviços de alta qualidade a preços competitivos, ajudando nossos clientes na optimização e redução de custos administrativos." },
+    { title: "Visão", content: "Estabelecer parcerias criando valor agregado através de uma oferta alargada de produtos e serviços, com uma equipa capacitada e comprometida." },
+    { title: "Valores", content: "Rigor, exigência, transparência, profissionalismo, honestidade e credibilidade em todas as nossas actuações." }
+  ];
+
   return (
     <section id="about" className="py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid md:grid-cols-2 gap-16 items-center">
+        <div className="grid md:grid-cols-2 gap-16 items-center mb-20">
           <motion.div
             initial={{ opacity: 0, x: -50 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -232,33 +253,30 @@ const About = () => {
             transition={{ duration: 0.8 }}
           >
             <div className="inline-block px-4 py-1 rounded-full bg-diva-gold/10 text-diva-gold font-bold text-sm mb-4">
-              SOBRE A DIVA
+              SOBRE A DIVA, S.A.
             </div>
             <h2 className="text-4xl font-bold text-diva-blue mb-6">
-              Mais de 10 anos transformando espaços de trabalho.
+              Soluções em Procurement e Logística.
             </h2>
             <p className="text-gray-600 text-lg mb-8 leading-relaxed">
-              Fundada com a missão de simplificar o dia a dia corporativo, a Diva tornou-se referência no fornecimento de materiais de escritório de alta qualidade. Não vendemos apenas produtos; entregamos eficiência e organização.
+              A DIVA, S.A. é uma sociedade vocacionada em Procurement e Logística, venda a grosso e a retalho de diversos equipamentos, consumíveis, materiais e mobiliário de escritório, material informático, máquinas agrícolas e ferramentas industriais.
             </p>
             <div className="grid grid-cols-2 gap-6 mb-8">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="text-diva-gold flex-shrink-0" />
                 <div>
-                  <h4 className="font-bold text-diva-blue">Qualidade Premium</h4>
-                  <p className="text-sm text-gray-500">Apenas as melhores marcas.</p>
+                  <h4 className="font-bold text-diva-blue">Procurement</h4>
+                  <p className="text-sm text-gray-500">Gestão eficiente de compras.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="text-diva-gold flex-shrink-0" />
                 <div>
-                  <h4 className="font-bold text-diva-blue">Entrega Ágil</h4>
-                  <p className="text-sm text-gray-500">Logística própria eficiente.</p>
+                  <h4 className="font-bold text-diva-blue">Logística</h4>
+                  <p className="text-sm text-gray-500">Transporte e armazenamento.</p>
                 </div>
               </div>
             </div>
-            <button className="text-diva-blue font-bold flex items-center group">
-              Conheça nossa história <ChevronRight className="ml-1 group-hover:translate-x-1 transition-transform" />
-            </button>
           </motion.div>
           
           <motion.div
@@ -268,19 +286,40 @@ const About = () => {
             transition={{ duration: 0.8 }}
             className="relative"
           >
-            <div className="aspect-square rounded-3xl overflow-hidden shadow-2xl">
+            <div className="aspect-video rounded-3xl overflow-hidden shadow-2xl">
               <img 
-                src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&q=80&w=1000" 
-                alt="Team working" 
+                src="https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&q=80&w=1000" 
+                alt="DIVA Team" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
             </div>
-            <div className="absolute -bottom-10 -left-10 bg-diva-blue p-8 rounded-2xl shadow-xl hidden lg:block">
-              <div className="text-4xl font-bold text-diva-gold mb-1">15k+</div>
-              <div className="text-white text-sm font-medium">Clientes Satisfeitos</div>
+            <div className="absolute -bottom-6 -right-6 bg-diva-blue p-6 rounded-2xl shadow-xl hidden lg:block border border-white/10">
+              <div className="text-3xl font-bold text-diva-gold mb-1">8+</div>
+              <div className="text-white text-xs font-medium">Funcionários Efectivos</div>
             </div>
           </motion.div>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-8">
+          {values.map((v, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-gray-50 p-8 rounded-3xl border border-gray-100 hover:shadow-lg transition-all"
+            >
+              <h3 className="text-xl font-bold text-diva-blue mb-4 flex items-center gap-3">
+                <div className="w-2 h-8 bg-diva-gold rounded-full"></div>
+                {v.title}
+              </h3>
+              <p className="text-gray-500 leading-relaxed italic">
+                "{v.content}"
+              </p>
+            </motion.div>
+          ))}
         </div>
       </div>
     </section>
@@ -290,33 +329,33 @@ const About = () => {
 const Services = () => {
   const services = [
     {
-      title: "Suprimentos de Escritório",
-      description: "Papelaria completa, desde itens básicos até materiais técnicos especializados.",
+      title: "Procurement Especializado",
+      description: "Consumíveis industriais, equipamentos agrícolas, ferramentas, peças sobressalentes e geradores.",
       icon: <Package className="w-8 h-8" />,
     },
     {
-      title: "Mobiliário Corporativo",
-      description: "Ergonomia e design para criar ambientes que inspiram criatividade e conforto.",
-      icon: <Briefcase className="w-8 h-8" />,
-    },
-    {
-      title: "Tecnologia & TI",
-      description: "Equipamentos de informática, periféricos e soluções de impressão.",
-      icon: <Award className="w-8 h-8" />,
-    },
-    {
-      title: "Logística Personalizada",
-      description: "Entregas programadas e gestão de estoque para grandes corporações.",
+      title: "Logística Integrada",
+      description: "Transporte, armazenamento, montagem e desmontagem com máxima eficiência operacional.",
       icon: <Truck className="w-8 h-8" />,
     },
     {
-      title: "Consultoria de Espaço",
-      description: "Ajudamos a planejar o seu escritório para máxima eficiência operacional.",
+      title: "Hardware & TI",
+      description: "Desktops, servidores, notebooks, monitores, storage e periféricos de última geração.",
+      icon: <Award className="w-8 h-8" />,
+    },
+    {
+      title: "Imagem e Impressão",
+      description: "Impressoras multifuncionais, scanners, projectores e consumíveis originais.",
+      icon: <Briefcase className="w-8 h-8" />,
+    },
+    {
+      title: "Serviços de TI",
+      description: "Outsourcing de impressão, locação de equipamentos, cabeamento e contratos de manutenção.",
       icon: <Users className="w-8 h-8" />,
     },
     {
-      title: "Suporte Dedicado",
-      description: "Atendimento exclusivo para garantir que nada falte no seu dia a dia.",
+      title: "Mobiliário de Escritório",
+      description: "Venda a grosso e a retalho de mobiliário ergonómico e funcional para empresas.",
       icon: <Headphones className="w-8 h-8" />,
     },
   ];
@@ -325,9 +364,9 @@ const Services = () => {
     <section id="services" className="py-24 bg-diva-blue text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto mb-20">
-          <h2 className="text-4xl font-bold mb-6">Nossos Serviços Prestados</h2>
+          <h2 className="text-4xl font-bold mb-6">Nossas Linhas de Produtos e Serviços</h2>
           <p className="text-gray-300 text-lg">
-            Oferecemos uma gama completa de soluções integradas para que você possa focar no que realmente importa: o seu negócio.
+            Agregamos ao nosso portfólio produtos e serviços dos principais fabricantes do mercado para oferecer soluções abrangentes.
           </p>
         </div>
 
@@ -357,72 +396,42 @@ const Services = () => {
 };
 
 const Clients = () => {
-  const testimonials = [
-    {
-      name: "Ricardo Santos",
-      role: "Diretor de Operações, TechFlow",
-      content: "A Diva é nossa parceira há 5 anos. A agilidade na entrega e a qualidade dos materiais são impecáveis.",
-      image: "https://i.pravatar.cc/150?u=1"
-    },
-    {
-      name: "Ana Oliveira",
-      role: "Gerente de RH, Global Solutions",
-      content: "O mobiliário ergonômico da Diva mudou a dinâmica do nosso escritório. Nossos colaboradores estão muito mais satisfeitos.",
-      image: "https://i.pravatar.cc/150?u=2"
-    },
-    {
-      name: "Carlos Mendes",
-      role: "CEO, Innovate Hub",
-      content: "Excelente atendimento. Sempre encontram soluções personalizadas para nossas necessidades específicas.",
-      image: "https://i.pravatar.cc/150?u=3"
-    }
+  const clients = [
+    "UNDP", "GFM", "Vulcan", "CTRG", "Porto de Maputo", "Bolloré", "IOM", "Galp", 
+    "ASM", "Saipem", "Açucareira de Xinavane", "Gardaworld", "Moçambique (Saúde)", 
+    "WHO", "FAO", "Maryland", "Moçambique (Seguros)", "Momentum", "Sumol+Compal", 
+    "FGH", "UNIDA", "The Mentor Initiative", "Broll", "APHL", "Clinton Health", 
+    "Muchire Assessorup", "First Capital Bank"
   ];
 
   return (
     <section id="clients" className="py-24 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row justify-between items-end mb-16 gap-6">
-          <div className="max-w-2xl">
-            <div className="inline-block px-4 py-1 rounded-full bg-diva-gold/10 text-diva-gold font-bold text-sm mb-4">
-              CLIENTES
-            </div>
-            <h2 className="text-4xl font-bold text-diva-blue">
-              O que dizem quem confia no nosso trabalho.
-            </h2>
+        <div className="text-center mb-16">
+          <div className="inline-block px-4 py-1 rounded-full bg-diva-gold/10 text-diva-gold font-bold text-sm mb-4">
+            CARTEIRA DE CLIENTES
           </div>
-          <div className="flex gap-4">
-            <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center cursor-pointer hover:bg-diva-blue hover:text-white transition-all">
-              <ChevronRight className="rotate-180" />
-            </div>
-            <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center cursor-pointer hover:bg-diva-blue hover:text-white transition-all">
-              <ChevronRight />
-            </div>
-          </div>
+          <h2 className="text-4xl font-bold text-diva-blue mb-6">
+            Empresas Líderes que Confiam na DIVA
+          </h2>
+          <p className="text-gray-500 text-lg max-w-3xl mx-auto">
+            Atendemos uma carteira diversificada de clientes corporativos de pequeno, médio e grande porte em diversos segmentos.
+          </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          {testimonials.map((t, i) => (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+          {clients.map((client, i) => (
             <motion.div
               key={i}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100"
+              transition={{ delay: i * 0.05 }}
+              className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-center text-center hover:shadow-md transition-all group"
             >
-              <div className="flex gap-1 text-diva-gold mb-6">
-                {[...Array(5)].map((_, star) => (
-                  <CheckCircle2 key={star} size={16} fill="currentColor" />
-                ))}
-              </div>
-              <p className="text-gray-600 italic mb-8">"{t.content}"</p>
-              <div className="flex items-center gap-4">
-                <img src={t.image} alt={t.name} className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
-                <div>
-                  <h4 className="font-bold text-diva-blue">{t.name}</h4>
-                  <p className="text-xs text-gray-400">{t.role}</p>
-                </div>
-              </div>
+              <span className="text-sm font-bold text-gray-400 group-hover:text-diva-blue transition-colors">
+                {client}
+              </span>
             </motion.div>
           ))}
         </div>
@@ -493,7 +502,8 @@ const Contact = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-400">Telefone</p>
-                    <p className="font-bold text-lg">+258 86 054 3336</p>
+                    <p className="font-bold text-lg">(+258) 21 426 555</p>
+                    <p className="text-xs text-gray-400">+258 86 054 3336</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -502,7 +512,7 @@ const Contact = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-400">Email</p>
-                    <p className="font-bold text-lg">comercial@diva.co.mz</p>
+                    <p className="font-bold text-lg">info@diva.co.mz</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -511,7 +521,10 @@ const Contact = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-400">Localização</p>
-                    <p className="font-bold text-lg">Maputo, Mocambique Av. Amilcar Cabral, Nr 48, 1o andar )</p>
+                    <p className="font-bold text-lg leading-tight">
+                      Maputo, Moçambique<br />
+                      Av. Amilcar Cabral, Nº 48, 1º andar
+                    </p>
                   </div>
                 </div>
               </div>
@@ -580,9 +593,21 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid md:grid-cols-4 gap-12 mb-16">
           <div className="col-span-1 md:col-span-1">
-            <span className="text-3xl font-bold tracking-tighter text-diva-blue mb-6 block">
-              <span className="text-diva-gold">d</span>iva
-            </span>
+            <div className="mb-6">
+              <img 
+                src="/logo.png" 
+                alt="Diva Logo" 
+                className="h-12 w-auto"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                }}
+              />
+              <span className="hidden text-3xl font-bold tracking-tighter text-diva-blue">
+                <span className="text-diva-gold">d</span>iva
+              </span>
+            </div>
             <p className="text-gray-500 mb-6">
               Soluções completas para escritórios modernos. Qualidade, agilidade e compromisso com o seu sucesso.
             </p>
@@ -630,7 +655,7 @@ const Footer = () => {
         </div>
         
         <div className="pt-8 border-t border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-gray-400">
-          <p>© 2024 Diva Material de Escritório. Todos os direitos reservados.</p>
+          <p>© 2024 Diva, S.A. • NUIT 400965651 • Todos os direitos reservados.</p>
           <div className="flex gap-6">
             <a href="#" className="hover:text-diva-blue">Privacidade</a>
             <a href="#" className="hover:text-diva-blue">Termos de Uso</a>
